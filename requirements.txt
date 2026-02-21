@@ -1,0 +1,21 @@
+
+# Core
+faster-whisper
+pyannote.audio==3.3.2
+torch>=2.4.0,<2.6.0
+torchaudio>=2.4.0,<2.6.0
+huggingface_hub>=0.20.0,<1.0
+requests
+python-dotenv
+websockets>=12.0
+
+# API server
+fastapi
+uvicorn[standard]
+
+# Menu bar
+rumps
+
+# Audio monitor (BlackHole → headphones pass-through during recording)
+sounddevice
+numpy

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Install:
+    1. Replace YOUR_USERNAME with your actual macOS username
+    2. Copy to ~/Library/LaunchAgents/
+       cp com.zoomrecorder.plist ~/Library/LaunchAgents/
+    3. Load it:
+       launchctl load ~/Library/LaunchAgents/com.zoomrecorder.plist
+    
+  Check status:   launchctl list | grep zoomrecorder
+  View logs:      tail -f /tmp/zoomrecorder.log
+  Stop:           launchctl unload ~/Library/LaunchAgents/com.zoomrecorder.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.zoomrecorder</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Use the python from your venv -->
+        <string>/Users/YOUR_USERNAME/zoom_recorder/venv/bin/python</string>
+        <string>/Users/YOUR_USERNAME/zoom_recorder/zoom_watcher.py</string>
+    </array>
+
+    <!-- Start at login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart if it crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Wait 10s before restart to avoid tight loops on crash -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USERNAME/zoom_recorder</string>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/zoomrecorder.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/zoomrecorder.err</string>
+
+    <!-- Ensure PATH includes homebrew so ffmpeg is found -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
