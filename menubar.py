@@ -88,74 +88,96 @@ class RecorderMenuBar(rumps.App):
     def _read_status(self) -> dict:
         try:
             if STATUS_FILE.exists():
-                data = json.loads(STATUS_FILE.read_text())
+                data  = json.loads(STATUS_FILE.read_text())
+                mtime = STATUS_FILE.stat().st_mtime
+                data["_file_age"] = datetime.now().timestamp() - mtime
                 return data
         except Exception:
             pass
         return {"state": "unknown"}
 
     def _update_ui(self, status: dict):
-        state   = status.get("state", "unknown")
-        meeting = status.get("meeting_topic", "")
-        source  = status.get("source", "")
-        error   = status.get("error", "")
-        since   = status.get("recording_since")
+        state     = status.get("state", "unknown")
+        meeting   = status.get("meeting_topic", "")
+        source    = status.get("source", "")
+        error     = status.get("error", "")
+        since     = status.get("recording_since")
+        file_age  = status.get("_file_age", 0)
 
-        if state == self._last_state and state not in ("recording",):
-            return  # no change, skip unnecessary UI updates
-        self._last_state = state
+        # If status file is stale (>30s old) and claims to be recording,
+        # the daemon has likely crashed — show a warning
+        if state == "recording" and file_age > 30:
+            self.title = "⚠"
+            self._status_item.title = "Daemon may have crashed"
+            self._meeting_item.hide()
+            self._duration_item.hide()
+            return
 
         if state == "idle":
             self.title = "⬤"
             self._status_item.title = "Status: Ready"
             self._meeting_item.hide()
             self._duration_item.hide()
+            self._last_state = state
 
         elif state == "recording":
-            self.title = f"⏺ {meeting[:25]}" if meeting else "⏺ Recording"
-            source_label = {"zoom": "Zoom", "chrome_meet": "Meet (Chrome)", "safari_meet": "Meet (Safari)"}.get(source, source)
-            self._status_item.title = f"Recording — {source_label}"
-            self._meeting_item.title = f"  {meeting}" if meeting else ""
-            self._meeting_item.show()
-
-            # Duration
+            # Always compute elapsed so title stays live every 2 seconds
+            elapsed_str = ""
             if since:
                 try:
                     started = datetime.fromisoformat(since)
                     elapsed = datetime.now().astimezone() - started.astimezone()
                     mins    = int(elapsed.total_seconds() // 60)
                     secs    = int(elapsed.total_seconds() % 60)
+                    elapsed_str = f" {mins}:{secs:02d}"
                     self._duration_item.title = f"  Duration: {mins}:{secs:02d}"
                     self._duration_item.show()
                 except Exception:
                     self._duration_item.hide()
 
+            # Title shows symbol + elapsed so it's always clear something is happening
+            self.title = f"⏺{elapsed_str}"
+            source_label = {"zoom": "Zoom", "chrome_meet": "Meet (Chrome)",
+                            "safari_meet": "Meet (Safari)"}.get(source, source)
+            self._status_item.title = f"Recording — {source_label}"
+            if meeting:
+                self._meeting_item.title = f"  {meeting}"
+                self._meeting_item.show()
+            self._last_state = state
+
         elif state == "processing":
-            self.title = "◌"  # hollow circle — processing
+            self.title = "◌"
             self._status_item.title = f"Processing: {meeting}"
             self._meeting_item.hide()
             self._duration_item.hide()
+            self._last_state = state
 
         elif state == "error":
+            if self._last_state != "error":
+                self._notify_error(error or "Unknown error")
             self.title = "⚠"
             self._status_item.title = f"Error: {error or 'Unknown error'}"
             self._meeting_item.hide()
             self._duration_item.hide()
-            # Fire a notification too
-            self._notify_error(error or "Unknown error")
+            self._last_state = "error"
 
         elif state == "selector_broken":
             self.title = "⚠"
             self._status_item.title = "Meet: Detection lost"
-            self._notify(
-                "Google Meet detector needs attention",
-                "The Meet DOM selectors may have changed. Open DevTools on meet.google.com to check.",
-            )
-            self._last_state = "error"  # don't re-notify
+            if self._last_state != "selector_broken":
+                self._notify(
+                    "Google Meet detector needs attention",
+                    "The Meet DOM selectors may have changed.",
+                )
+            self._last_state = "selector_broken"
 
         else:
-            self.title = "⬤"
-            self._status_item.title = "Daemon not running"
+            # State file missing or unknown — daemon not running
+            if file_age > 60 or state == "unknown":
+                self.title = "⬤"
+                self._status_item.title = "Daemon not running"
+            self._meeting_item.hide()
+            self._duration_item.hide()
 
     def _notify(self, title: str, message: str):
         rumps.notification(

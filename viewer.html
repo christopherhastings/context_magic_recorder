@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcripts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:#0f0e0c;color:#e0d6c8;font-family:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column}
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-thumb{background:#2a2520;border-radius:2px}
+button{cursor:pointer;font-family:inherit;border:none;outline:none}
+input,select{font-family:inherit;outline:none}
+
+/* ── Layout ──────────────────────────────────────────────────────── */
+#shell{flex:1;display:flex;overflow:hidden}
+#list-panel{width:320px;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;background:#0d0c0a}
+#detail-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── List panel top ───────────────────────────────────────────────── */
+#list-top{padding:20px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0}
+.wordmark{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.18em;color:#4a4038;text-transform:uppercase;margin-bottom:16px}
+#search-wrap{position:relative}
+#search{width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:8px 32px 8px 14px;color:#c8bdb0;font-size:13px;transition:border-color 0.2s}
+#search:focus{border-color:rgba(203,139,74,0.5);background:rgba(255,255,255,0.06)}
+#search::placeholder{color:#3a342c}
+#search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;color:#4a4038;font-size:11px;display:none;padding:2px}
+#list-count{font-size:10px;color:#3a342c;font-family:'DM Mono',monospace;margin-top:10px}
+
+/* ── Recording list ───────────────────────────────────────────────── */
+#rec-list{flex:1;overflow-y:auto;padding:8px 0}
+.rec-item{padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background 0.15s;border-left:2px solid transparent;position:relative}
+.rec-item:hover{background:rgba(255,255,255,0.025)}
+.rec-item.active{background:rgba(203,139,74,0.07);border-left-color:#cb8b4a}
+.rec-date{font-size:10px;color:#4a4038;font-family:'DM Mono',monospace;letter-spacing:0.05em;margin-bottom:5px}
+.rec-topic{font-family:'Instrument Serif',Georgia,serif;font-size:15px;color:#e0d6c8;line-height:1.3;margin-bottom:6px}
+.rec-item.active .rec-topic{color:#e8b878}
+.rec-pills{display:flex;gap:6px;flex-wrap:wrap}
+.pill{font-size:9px;padding:2px 7px;border-radius:20px;letter-spacing:0.04em;font-family:'DM Mono',monospace}
+.pill-src{background:rgba(255,255,255,0.05);color:#6a5f52}
+.pill-spk{background:rgba(203,139,74,0.1);color:#9a7040}
+.pill-match{background:rgba(100,180,120,0.12);color:#5a9068}
+.rec-empty{padding:40px 20px;text-align:center;color:#3a342c;font-size:13px;line-height:1.8}
+
+/* ── Detail: empty state ─────────────────────────────────────────── */
+#empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#3a342c;gap:12px}
+#empty-state .big{font-family:'Instrument Serif',Georgia,serif;font-size:28px;color:#2a2520}
+#empty-state .sub{font-size:12px;color:#3a342c;line-height:1.6;text-align:center;max-width:280px}
+
+/* ── Detail: header ─────────────────────────────────────────────── */
+#detail-header{padding:28px 36px 0;flex-shrink:0}
+.det-meta{font-size:10px;color:#4a4038;font-family:'DM Mono',monospace;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px}
+.det-title{font-family:'Instrument Serif',Georgia,serif;font-size:30px;color:#e8d8c0;font-weight:400;line-height:1.15;margin-bottom:14px}
+.det-agenda{font-size:13px;color:#7a7060;line-height:1.65;font-style:italic;margin-bottom:18px;max-width:640px}
+
+/* ── Speaker legend ─────────────────────────────────────────────── */
+#speaker-bar{display:flex;gap:0;padding:0 36px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,0.06)}
+.spk-tab{padding:10px 16px 11px;font-size:11px;font-weight:500;color:#6a5f52;border-bottom:2px solid transparent;transition:all 0.15s;cursor:pointer;white-space:nowrap;background:none;letter-spacing:0.04em}
+.spk-tab:hover{color:#c8bdb0}
+.spk-tab.active{border-bottom-color:currentColor}
+.spk-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;opacity:0.9}
+
+/* ── Re-diarize controls ────────────────────────────────────────── */
+#redialog-bar{display:flex;align-items:center;gap:12px;padding:10px 36px;background:#0d0c0a;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0}
+#redialog-bar label{font-size:11px;color:#4a4038;font-family:'DM Mono',monospace;white-space:nowrap}
+#spk-count{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#c8bdb0;font-size:12px;padding:5px 10px;width:60px}
+#spk-count:focus{border-color:rgba(203,139,74,0.4)}
+#btn-rediarize{background:rgba(203,139,74,0.12);border:1px solid rgba(203,139,74,0.2);color:#cb8b4a;font-size:11px;padding:5px 14px;border-radius:6px;letter-spacing:0.04em;transition:all 0.2s}
+#btn-rediarize:hover:not(:disabled){background:rgba(203,139,74,0.2);border-color:rgba(203,139,74,0.35)}
+#btn-rediarize:disabled{opacity:0.4;cursor:wait}
+#redialog-status{font-size:11px;color:#6a5f52;font-style:italic}
+
+/* ── Search bar ─────────────────────────────────────────────────── */
+#detail-search-bar{display:flex;align-items:center;gap:10px;padding:10px 36px;border-bottom:1px solid rgba(255,255,255,0.05);flex-shrink:0}
+#detail-search{flex:1;max-width:360px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:6px 12px;color:#c8bdb0;font-size:12px;transition:border-color 0.2s}
+#detail-search:focus{border-color:rgba(203,139,74,0.4)}
+#detail-search::placeholder{color:#3a342c}
+#match-info{font-size:11px;color:#6a5f52}
+.nav-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#6a5f52;width:22px;height:22px;border-radius:5px;font-size:11px;transition:all 0.15s}
+.nav-btn:hover{background:rgba(255,255,255,0.08);color:#c8bdb0}
+
+/* ── Transcript turns ───────────────────────────────────────────── */
+#turns{flex:1;overflow-y:auto;padding:0 36px 60px}
+.turn-group{display:flex;gap:24px;padding:20px 0;border-bottom:1px solid rgba(255,255,255,0.035)}
+.turn-group:last-child{border-bottom:none}
+.turn-group.hl{background:rgba(203,139,74,0.04);border-radius:8px;margin:0 -8px;padding:20px 8px}
+.turn-left{width:120px;flex-shrink:0;padding-top:2px}
+.turn-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;margin-bottom:6px}
+.turn-spk-name{font-size:11px;font-weight:500;margin-bottom:3px}
+.turn-time{font-size:10px;color:#4a4038;font-family:'DM Mono',monospace}
+.turn-body{flex:1;padding-top:6px}
+.turn-text{font-size:14.5px;color:#c8bdb0;line-height:1.8;font-family:'Instrument Serif',Georgia,serif;font-weight:400}
+mark{background:rgba(203,139,74,0.22);color:#e8b878;border-radius:2px;padding:0 1px}
+
+/* ── Loading overlay ────────────────────────────────────────────── */
+#loading-overlay{display:none;position:fixed;inset:0;background:rgba(15,14,12,0.85);align-items:center;justify-content:center;z-index:100;flex-direction:column;gap:16px}
+#loading-overlay.show{display:flex}
+.spinner{width:32px;height:32px;border:2px solid rgba(203,139,74,0.15);border-top-color:#cb8b4a;border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-msg{font-size:13px;color:#6a5f52}
+
+/* misc */
+.dim{color:#4a4038;font-size:13px;padding:40px;text-align:center}
+</style>
+</head>
+<body>
+
+<div id="shell">
+  <!-- LEFT: recording list -->
+  <div id="list-panel">
+    <div id="list-top">
+      <div class="wordmark">Transcripts</div>
+      <div id="search-wrap">
+        <input id="search" type="text" placeholder="Search meetings…">
+        <button id="search-clear">✕</button>
+      </div>
+      <div id="list-count"></div>
+    </div>
+    <div id="rec-list"><div class="rec-empty">Loading…</div></div>
+  </div>
+
+  <!-- RIGHT: detail -->
+  <div id="detail-panel">
+    <div id="empty-state">
+      <div class="big">No recording selected</div>
+      <div class="sub">Choose a meeting from the list to read its transcript</div>
+    </div>
+  </div>
+</div>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-msg" id="loading-msg">Re-running diarization…</div>
+</div>
+
+<script>
+const API='http://localhost:8766';
+const COLORS=['#cb8b4a','#5d9ab2','#6aab6a','#a86aab','#a89d4a','#6a8aab'];
+const LIGHT=['#f0c070','#90cce0','#90d890','#d890d8','#d8cc70','#90aad8'];
+
+let allRecs=[],activeId=null,activeData=null,searchQ='',detailQ='';
+let matchIdx=[],hlPos=0,activeSpeaker=null;
+
+/* ── Utils ─────────────────────────────────────────────────────── */
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function fmtTime(s){const m=Math.floor(s/60);return m+':'+Math.floor(s%60).toString().padStart(2,'0')}
+function fmtDate(iso){if(!iso)return'—';const d=new Date(iso);return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})}
+function fmtDur(mins,j,l){let m=mins;if(!m&&j&&l)m=Math.round((new Date(l)-new Date(j))/60000);if(!m)return null;return m<60?m+'m':Math.floor(m/60)+'h '+(m%60)+'m'}
+function srcLabel(s){return{zoom:'Zoom',google_meet_chrome:'Meet · Chrome',google_meet_safari:'Meet · Safari'}[s]||s||''}
+function initials(n){return n.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+function colorFor(speakers,name){const i=speakers.indexOf(name);return i>=0?COLORS[i%COLORS.length]:'#6a5f52'}
+function lightFor(speakers,name){const i=speakers.indexOf(name);return i>=0?LIGHT[i%LIGHT.length]:'#8a7d6e'}
+function hlText(text,q){
+  if(!q.trim())return esc(text);
+  const e=q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  return esc(text).replace(new RegExp('('+e+')','gi'),'<mark>$1</mark>');
+}
+
+/* ── List panel ─────────────────────────────────────────────────── */
+function renderList(){
+  const q=searchQ.toLowerCase().trim();
+  const filtered=q?allRecs.filter(r=>(r.topic||'').toLowerCase().includes(q)||(r.participants||[]).some(p=>p.name.toLowerCase().includes(q))):allRecs;
+  document.getElementById('list-count').textContent=filtered.length+' of '+allRecs.length+' meetings';
+  if(!filtered.length){document.getElementById('rec-list').innerHTML='<div class="rec-empty">No results</div>';return;}
+  const turns=activeData?activeData.transcript?.turns||[]:[];
+  document.getElementById('rec-list').innerHTML=filtered.map(r=>{
+    const matches=q?turns.filter(t=>t.text.toLowerCase().includes(q)&&r.id===activeId).length:0;
+    const dur=fmtDur(r.duration_minutes,r.start_time,r.processed_at);
+    const dateStr=r.start_time?new Date(r.start_time).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+    return '<div class="rec-item'+(r.id===activeId?' active':'')+'" data-id="'+esc(r.id)+'">'+
+      '<div class="rec-date">'+esc(dateStr)+(dur?' · '+esc(dur):'')+'</div>'+
+      '<div class="rec-topic">'+esc(r.topic||r.id)+'</div>'+
+      '<div class="rec-pills">'+
+        '<span class="pill pill-src">'+esc(srcLabel(r.source))+'</span>'+
+        (r.speaker_count>0?'<span class="pill pill-spk">'+r.speaker_count+' speakers</span>':'')+
+        (matches>0?'<span class="pill pill-match">'+matches+' matches</span>':'')+
+      '</div></div>';
+  }).join('');
+  document.getElementById('rec-list').querySelectorAll('.rec-item').forEach(el=>{
+    el.addEventListener('click',()=>loadRecording(el.dataset.id));
+  });
+}
+
+/* ── Detail panel ───────────────────────────────────────────────── */
+function renderDetail(){
+  const dp=document.getElementById('detail-panel');
+  if(!activeData){
+    dp.innerHTML='<div id="empty-state"><div class="big">Select a meeting</div><div class="sub">Choose a recording from the list</div></div>';
+    return;
+  }
+  const{meeting={},speakers=[],transcript={}}=activeData;
+  const turns=transcript.turns||[];
+  const participants=meeting.participants||[];
+
+  // Unique speaker list (from turns if speakers array empty)
+  const allSpeakers=speakers.length?speakers:[...new Set(turns.map(t=>t.speaker))];
+
+  // Filter turns by active speaker
+  const visibleTurns=activeSpeaker?turns.filter(t=>t.speaker===activeSpeaker):turns;
+
+  // Search match indices within visible turns
+  const q=detailQ.toLowerCase().trim();
+  matchIdx=q?visibleTurns.map((t,i)=>t.text.toLowerCase().includes(q)?i:-1).filter(i=>i!==-1):[];
+  if(hlPos>=matchIdx.length)hlPos=0;
+
+  const dur=fmtDur(meeting.duration_minutes,meeting.start_time||meeting.local_joined,meeting.local_left);
+  const numSpk=allSpeakers.length||1;
+
+  // Speaker tab bar
+  const tabsHtml='<div id="speaker-bar">'+
+    '<button class="spk-tab'+(activeSpeaker===null?' active':'')+'" style="color:'+( activeSpeaker===null?'#c8bdb0':'#6a5f52')+'" data-spk="__all__">'+
+      'All speakers'+
+    '</button>'+
+    allSpeakers.map((s,i)=>{
+      const col=COLORS[i%COLORS.length];
+      const isActive=activeSpeaker===s;
+      return '<button class="spk-tab'+(isActive?' active':'')+'" style="color:'+(isActive?col:'#6a5f52')+'" data-spk="'+esc(s)+'">'+
+        '<span class="spk-dot" style="background:'+col+'"></span>'+esc(s.split(' ')[0])+
+        '</button>';
+    }).join('')+
+  '</div>';
+
+  // Re-diarize bar
+  const rediarHtml='<div id="redialog-bar">'+
+    '<label>Speakers in this meeting</label>'+
+    '<input id="spk-count" type="number" min="1" max="10" value="'+numSpk+'">'+
+    '<button id="btn-rediarize">↻ Re-run diarization</button>'+
+    '<span id="redialog-status"></span>'+
+  '</div>';
+
+  // Search bar
+  const searchBarHtml='<div id="detail-search-bar">'+
+    '<input id="detail-search" type="text" placeholder="Search this transcript…" value="'+esc(detailQ)+'">'+
+    (matchIdx.length>0?
+      '<span id="match-info">'+matchIdx.length+' match'+(matchIdx.length!==1?'es':'')+'</span>'+
+      '<button class="nav-btn" id="nav-up">↑</button>'+
+      '<button class="nav-btn" id="nav-dn">↓</button>':
+      (q?'<span id="match-info" style="color:#5a3a2a">no matches</span>':'')
+    )+
+  '</div>';
+
+  // Header
+  const displayPeople=participants.length?participants:allSpeakers.map(s=>({name:s}));
+  const headerHtml='<div id="detail-header">'+
+    '<div class="det-meta">'+fmtDate(meeting.start_time||meeting.local_joined)+(dur?' · '+dur:'')+(meeting.topic?' · '+esc(srcLabel(activeData._src)):'')+'</div>'+
+    '<div class="det-title">'+esc(meeting.topic||'Meeting')+'</div>'+
+    (meeting.agenda?'<div class="det-agenda">'+esc(meeting.agenda)+'</div>':'')+
+  '</div>';
+
+  // Turns
+  const turnsHtml=visibleTurns.length?visibleTurns.map((t,i)=>{
+    const spkIdx=allSpeakers.indexOf(t.speaker);
+    const col=spkIdx>=0?COLORS[spkIdx%COLORS.length]:'#6a5f52';
+    const lcol=spkIdx>=0?LIGHT[spkIdx%LIGHT.length]:'#8a7d6e';
+    const isHl=matchIdx[hlPos]===i;
+    return '<div class="turn-group'+(isHl?' hl':'')+'" data-ti="'+i+'">'+
+      '<div class="turn-left">'+
+        '<div class="turn-avatar" style="background:'+col+'18;color:'+lcol+'">'+esc(initials(t.speaker))+'</div>'+
+        '<div class="turn-spk-name" style="color:'+col+'">'+esc(t.speaker.split(' ')[0])+'</div>'+
+        '<div class="turn-time">'+fmtTime(t.start)+'</div>'+
+      '</div>'+
+      '<div class="turn-body">'+
+        '<div class="turn-text">'+hlText(t.text,detailQ)+'</div>'+
+      '</div>'+
+    '</div>';
+  }).join(''):'<div class="dim">No turns for this speaker</div>';
+
+  dp.innerHTML=headerHtml+tabsHtml+rediarHtml+searchBarHtml+'<div id="turns">'+turnsHtml+'</div>';
+
+  // Scroll to highlight
+  if(matchIdx.length>0)scrollToHl();
+
+  // Wire speaker tabs
+  dp.querySelectorAll('.spk-tab').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      activeSpeaker=btn.dataset.spk==='__all__'?null:btn.dataset.spk;
+      hlPos=0;
+      renderDetail();
+    });
+  });
+
+  // Wire search
+  document.getElementById('detail-search').addEventListener('input',e=>{
+    detailQ=e.target.value; hlPos=0; renderDetail();
+    setTimeout(()=>{const el=document.getElementById('detail-search');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);
+  });
+
+  // Nav buttons
+  document.getElementById('nav-up')?.addEventListener('click',()=>{if(matchIdx.length){hlPos=(hlPos-1+matchIdx.length)%matchIdx.length;updateHl();}});
+  document.getElementById('nav-dn')?.addEventListener('click',()=>{if(matchIdx.length){hlPos=(hlPos+1)%matchIdx.length;updateHl();}});
+
+  // Re-diarize
+  document.getElementById('btn-rediarize').addEventListener('click',runRediarize);
+}
+
+function scrollToHl(){
+  const idx=matchIdx[hlPos];
+  if(idx==null)return;
+  const el=document.querySelector('[data-ti="'+idx+'"]');
+  if(el)el.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+function updateHl(){
+  document.querySelectorAll('.turn-group').forEach((el,i)=>el.classList.toggle('hl',matchIdx[hlPos]===i));
+  const info=document.getElementById('match-info');
+  if(info)info.textContent=matchIdx.length+' match'+(matchIdx.length!==1?'es':'');
+  scrollToHl();
+}
+
+/* ── Re-diarize ─────────────────────────────────────────────────── */
+async function runRediarize(){
+  const n=parseInt(document.getElementById('spk-count').value)||null;
+  const btn=document.getElementById('btn-rediarize');
+  const status=document.getElementById('redialog-status');
+  btn.disabled=true;
+  status.textContent='';
+  document.getElementById('loading-msg').textContent='Re-running diarization'+(n?' for '+n+' speakers':'')+'… this takes 1–2 minutes';
+  document.getElementById('loading-overlay').classList.add('show');
+  try{
+    const res=await fetch(API+'/api/recordings/'+activeId+'/rediarize',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({num_speakers:n}),
+    });
+    if(!res.ok){const e=await res.json();throw new Error(e.detail||'Server error '+res.status);}
+    activeData=await res.json();
+    activeData._id=activeId;
+    activeData._src=allRecs.find(r=>r.id===activeId)?.source;
+    // Refresh the list item speaker count
+    const listItem=allRecs.find(r=>r.id===activeId);
+    if(listItem)listItem.speaker_count=(activeData.speakers||[]).length;
+    activeSpeaker=null; hlPos=0; detailQ='';
+    renderDetail();
+    status.textContent='✓ Done';
+  }catch(e){
+    status.textContent='✗ '+e.message;
+  }finally{
+    btn.disabled=false;
+    document.getElementById('loading-overlay').classList.remove('show');
+  }
+}
+
+/* ── Data loading ───────────────────────────────────────────────── */
+async function loadRecording(id){
+  if(id===activeId&&activeData)return;
+  activeId=id; activeData=null; activeSpeaker=null; hlPos=0; detailQ='';
+  renderList();
+  const dp=document.getElementById('detail-panel');
+  dp.innerHTML='<div id="empty-state"><div class="big" style="font-size:18px;color:#3a342c">Loading…</div></div>';
+  try{
+    const res=await fetch(API+'/api/recordings/'+id);
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    activeData=await res.json();
+    activeData._id=id;
+    activeData._src=allRecs.find(r=>r.id===id)?.source||'';
+    renderList();
+    renderDetail();
+  }catch(e){
+    dp.innerHTML='<div id="empty-state"><div class="sub" style="color:#8a4a3a">Failed to load:<br>'+esc(e.message)+'</div></div>';
+  }
+}
+
+async function loadList(){
+  try{
+    const res=await fetch(API+'/api/recordings');
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    allRecs=data.recordings||[];
+    renderList();
+    if(allRecs.length>0)loadRecording(allRecs[0].id);
+    else{
+      document.getElementById('rec-list').innerHTML='<div class="rec-empty">No recordings yet.<br><br>Start a Zoom or Meet call.</div>';
+    }
+  }catch(e){
+    document.getElementById('rec-list').innerHTML='<div class="rec-empty" style="color:#cb7040">Cannot reach API server.<br><br>Is api_server.py running?</div>';
+    document.getElementById('list-count').textContent='—';
+  }
+}
+
+/* ── Search wiring ──────────────────────────────────────────────── */
+document.getElementById('search').addEventListener('input',e=>{
+  searchQ=e.target.value;
+  document.getElementById('search-clear').style.display=searchQ?'block':'none';
+  renderList();
+});
+document.getElementById('search-clear').addEventListener('click',()=>{
+  searchQ='';document.getElementById('search').value='';
+  document.getElementById('search-clear').style.display='none';
+  renderList();
+});
+
+loadList();
+</script>
+</body>
+</html>

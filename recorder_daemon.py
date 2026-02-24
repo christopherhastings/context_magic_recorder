@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -51,23 +52,9 @@ WS_PORT           = int(os.getenv("WS_PORT", "8765"))
 NUM_SPEAKERS      = int(os.getenv("NUM_SPEAKERS", "4"))
 CLOUD_API_ENABLED = bool(os.getenv("ZOOM_ACCOUNT_ID"))
 STATUS_FILE       = Path("/tmp/recorder_status.json")
-MIC_DEVICE        = os.getenv("MIC_DEVICE", "")  # auto-detect if blank
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-
-def detect_mic_device() -> str:
-    """Auto-detect the default system input device for local voice capture."""
-    if MIC_DEVICE:
-        return MIC_DEVICE
-    try:
-        import sounddevice as sd
-        info = sd.query_devices(sd.default.device[0])
-        name = info["name"]
-        logger.info(f"[mic] auto-detected: {name}")
-        return name
-    except Exception:
-        return "MacBook Pro Microphone"
 
 def write_status(state: str, **kwargs):
     try:
@@ -105,72 +92,19 @@ class RecordingSession:
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         ts      = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        topic   = meta.get("topic", source).replace(" ", "_")[:40]
+        raw     = meta.get("topic", source)
+        # Strip filesystem-unsafe chars — / is critical, it creates phantom subdirectories
+        topic   = re.sub(r'[/\\\\:*?"<>|]', '-', raw).replace(" ", "_").strip("-_")[:40]
         src_tag = {"zoom": "zoom", "chrome_meet": "meet-chrome", "safari_meet": "meet-safari"}[source]
         ext     = ".wav" if self.capture_mode == "ffmpeg" else ".webm"
         self.audio_path = OUTPUT_DIR / f"{ts}_{src_tag}_{topic}{ext}"
 
-        self._ffmpeg_proc    = None
-        self._stream_file    = None
-        self._bytes_recv     = 0
-        self._monitor_stream = None
+        self._ffmpeg_proc = None
+        self._stream_file = None
+        self._bytes_recv  = 0
 
         # Only Safari Meet needs system-level audio routing
         self._router = get_router() if source == "safari_meet" else None
-
-    def _start_monitor(self):
-        """
-        Real-time BlackHole → headphones pass-through.
-        Lets the user hear the call while ffmpeg silently captures from BlackHole.
-        Skipped gracefully if sounddevice isn't installed.
-        """
-        try:
-            import sounddevice as sd
-
-            devices   = sd.query_devices()
-            input_idx = next((i for i, d in enumerate(devices)
-                              if BLACKHOLE_DEVICE.lower() in d["name"].lower()
-                              and d["max_input_channels"] > 0), None)
-
-            if input_idx is None:
-                logger.warning("[monitor] BlackHole input not found — skipping")
-                return
-
-            output_idx  = sd.default.device[1]
-            output_name = sd.query_devices(output_idx)["name"]
-            logger.info(f"[monitor] pass-through: BlackHole → {output_name}")
-
-            def callback(indata, outdata, frames, time_info, status):
-                outdata[:] = indata
-
-            self._monitor_stream = sd.Stream(
-                samplerate=48000,
-                blocksize=1024,
-                channels=2,
-                dtype="float32",
-                device=(input_idx, output_idx),
-                callback=callback,
-                latency="low",
-            )
-            self._monitor_stream.start()
-
-        except ImportError:
-            logger.warning(
-                "[monitor] sounddevice not installed — you won't hear audio "
-                "through headphones during Zoom/Safari recording.\n"
-                "  Fix: pip install sounddevice numpy"
-            )
-        except Exception as e:
-            logger.warning(f"[monitor] could not start: {e}")
-
-    def _stop_monitor(self):
-        if self._monitor_stream:
-            try:
-                self._monitor_stream.stop()
-                self._monitor_stream.close()
-            except Exception:
-                pass
-            self._monitor_stream = None
 
     def start_ffmpeg(self):
         # Activate audio routing BEFORE ffmpeg starts (don't miss opening audio)
@@ -181,42 +115,16 @@ class RecordingSession:
                     "other apps playing audio may appear in this recording."
                 )
 
-        if self.source == "zoom":
-            # Stereo: left=remote participants (BlackHole), right=local mic (your voice)
-            mic = detect_mic_device()
-            cmd = [
-                "ffmpeg",
-                "-f", "avfoundation", "-i", f":{BLACKHOLE_DEVICE}",
-                "-f", "avfoundation", "-i", f":{mic}",
-                "-filter_complex",
-                "[0:a]aformat=channel_layouts=mono[left];"
-                "[1:a]aformat=channel_layouts=mono[right];"
-                "[left][right]amerge=inputs=2,pan=stereo|c0<c0|c1<c1",
-                "-ar", "16000", "-ac", "2", "-c:a", "pcm_s16le",
-                str(self.audio_path), "-y", "-loglevel", "error",
-            ]
-            logger.info(f"[{self.source}] stereo capture: L={BLACKHOLE_DEVICE} R={mic}")
-        else:
-            # Single input (Safari Meet / Chrome Meet fallback)
-            cmd = [
-                "ffmpeg", "-f", "avfoundation",
-                "-i", f":{BLACKHOLE_DEVICE}",
-                "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-                str(self.audio_path), "-y", "-loglevel", "error",
-            ]
-
+        cmd = [
+            "ffmpeg", "-f", "avfoundation",
+            "-i", f":{BLACKHOLE_DEVICE}",
+            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            str(self.audio_path), "-y", "-loglevel", "error",
+        ]
         self._ffmpeg_proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
         logger.info(f"[{self.source}] ffmpeg → {self.audio_path.name}")
 
-        # Start monitor for Safari/Meet so you hear audio through headphones.
-        # Zoom doesn't need this — set Zoom speaker to Magic_Context which
-        # routes to both BlackHole (recording) and your headphones/speakers.
-        if self.source != "zoom":
-            self._start_monitor()
-
     def stop_ffmpeg(self):
-        self._stop_monitor()
-
         if not self._ffmpeg_proc:
             return
         try:
@@ -372,32 +280,61 @@ class RecordingSession:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class ZoomWatcher:
+    # How many consecutive misses before we declare the call over.
+    # At POLL_INTERVAL=3s, MISS_THRESHOLD=4 means 12 seconds of silence
+    # before stopping — enough to survive Zoom's brief audio routing gaps.
+    MISS_THRESHOLD = 4
+
     def __init__(self):
-        self._detector = ZoomDetector(blackhole_device=BLACKHOLE_DEVICE)
+        self._detector    = ZoomDetector(blackhole_device=BLACKHOLE_DEVICE)
         self._session: RecordingSession | None = None
-        self._was_in  = False
+        self._in_call     = False
+        self._miss_count  = 0
+        self._recording_since: datetime | None = None
 
     def _tick(self):
         info = self._detector.poll()
 
-        if info.in_call and not self._was_in:
-            logger.info(f"[zoom] 🔴 {info.topic}")
-            self._session = RecordingSession("zoom", {"topic": info.topic})
-            self._session.start_ffmpeg()
-            write_status("recording",
-                meeting_topic=info.topic,
-                source="zoom",
-                recording_since=datetime.now().isoformat(),
-            )
-            notify(f"Recording: {info.topic}", "Zoom call detected")
-            self._was_in = True
+        if info.in_call:
+            self._miss_count = 0   # reset debounce on any positive detection
 
-        elif not info.in_call and self._was_in:
-            if self._session:
-                self._session.stop()
-                self._session.post_process_async()
-                self._session = None
-            self._was_in = False
+            if not self._in_call:
+                # Call just started
+                self._in_call = True
+                self._recording_since = datetime.now()
+                logger.info(f"[zoom] 🔴 {info.topic}")
+                self._session = RecordingSession("zoom", {"topic": info.topic})
+                self._session.start_ffmpeg()
+                write_status("recording",
+                    meeting_topic=info.topic,
+                    source="zoom",
+                    recording_since=self._recording_since.isoformat(),
+                )
+                notify(f"Recording: {info.topic}", "Zoom call detected")
+            else:
+                # Still in call — refresh status so menu bar stays current
+                elapsed = (datetime.now() - self._recording_since).total_seconds()
+                write_status("recording",
+                    meeting_topic=info.topic,
+                    source="zoom",
+                    recording_since=self._recording_since.isoformat(),
+                    elapsed_seconds=int(elapsed),
+                )
+
+        else:
+            if self._in_call:
+                self._miss_count += 1
+                logger.debug(f"[zoom] miss {self._miss_count}/{self.MISS_THRESHOLD}")
+
+                if self._miss_count >= self.MISS_THRESHOLD:
+                    # Confirmed call ended — stop and process
+                    logger.info(f"[zoom] ⏹ call ended (confirmed after {self._miss_count} misses)")
+                    self._in_call    = False
+                    self._miss_count = 0
+                    if self._session:
+                        self._session.stop()
+                        self._session.post_process_async()
+                        self._session = None
 
     def run(self):
         logger.info("[zoom] watcher started")
@@ -468,43 +405,14 @@ class MeetServer:
             if s:
                 s.meta.update(meta)
 
-        elif t == "use_fallback_audio":
-            s = self._sessions.get(client_id)
-            if s:
-                # Close the empty stream file without converting
-                if s._stream_file:
-                    s._stream_file.close()
-                    s._stream_file = None
-                # Remove the 0-byte webm
-                try:
-                    s.audio_path.unlink(missing_ok=True)
-                except Exception:
-                    pass
-                # Switch to ffmpeg/BlackHole with a clean .wav path
-                s.capture_mode = "ffmpeg"
-                s.audio_path = s.audio_path.with_suffix(".wav")
-                s.start_ffmpeg()
-                logger.info(f"[{source}] switching to BlackHole fallback")
-
         elif t == "selector_broken":
-            logger.warning("[meet] DOM selector failure — ending session in 30s if no meeting_end arrives")
+            logger.warning("[meet] DOM selector failure reported by extension")
             write_status("selector_broken")
-            asyncio.create_task(self._end_session_delayed(client_id, delay=30))
-
-    async def _end_session_delayed(self, client_id: str, delay: int):
-        """Safety net: end session after delay if it's still active."""
-        await asyncio.sleep(delay)
-        if client_id in self._sessions:
-            logger.info(f"[meet] no meeting_end received — force-ending session")
-            await self._end_session(client_id)
 
     async def _end_session(self, client_id: str):
-        session = self._sessions.get(client_id)
+        session = self._sessions.pop(client_id, None)
         if not session:
             return
-        if session.capture_mode == "stream":
-            await asyncio.sleep(3)   # drain final WebM chunks before closing
-        self._sessions.pop(client_id, None)
         session.stop()
         session.post_process_async()
 
@@ -523,7 +431,6 @@ def main():
     logger.info("  Recorder Daemon")
     logger.info(f"  Output:      {OUTPUT_DIR}")
     logger.info(f"  BlackHole:   {BLACKHOLE_DEVICE}")
-    logger.info(f"  Mic:         {MIC_DEVICE or '(auto-detect)'}")
     logger.info(f"  Whisper:     {WHISPER_MODEL}")
     logger.info(f"  Diarization: {'✓' if HF_TOKEN else '✗ — set HF_TOKEN in .env'}")
     logger.info(f"  Zoom Cloud:  {'✓' if CLOUD_API_ENABLED else '✗ — optional'}")

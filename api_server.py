@@ -82,8 +82,18 @@ def _infer_source(recording_id: str) -> str:
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
-@app.get("/api/recordings")
-def list_recordings():
+VIEWER_HTML = Path(__file__).parent / "viewer.html"
+
+
+@app.get("/", response_class=FileResponse)
+def viewer():
+    """Serve the transcript viewer."""
+    if not VIEWER_HTML.exists():
+        raise HTTPException(status_code=404, detail="viewer.html not found alongside api_server.py")
+    return FileResponse(VIEWER_HTML, media_type="text/html")
+
+
+
     """All recordings as summaries, newest first."""
     summaries = []
     for path in get_all_json_files():
@@ -97,6 +107,19 @@ def list_recordings():
                 "topic": path.stem,
                 "error": str(e),
             })
+    return {"recordings": summaries, "total": len(summaries)}
+
+
+@app.get("/api/recordings")
+def list_recordings():
+    """All recordings as summaries, newest first."""
+    summaries = []
+    for path in get_all_json_files():
+        try:
+            data = load_recording(path)
+            summaries.append(make_summary(path.stem, data))
+        except Exception as e:
+            summaries.append({"id": path.stem, "topic": path.stem, "error": str(e)})
     return {"recordings": summaries, "total": len(summaries)}
 
 
@@ -180,6 +203,93 @@ def status():
 @app.get("/api/health")
 def health():
     return {"ok": True, "output_dir": str(OUTPUT_DIR), "exists": OUTPUT_DIR.exists()}
+
+
+@app.post("/api/recordings/{recording_id}/rediarize")
+async def rediarize(recording_id: str, body: dict):
+    """
+    Re-run diarization on an existing recording with a new speaker count.
+    Accepts: {"num_speakers": N}  — N must be 1–10.
+    Returns the updated transcript JSON when complete.
+    This can take 30–120 seconds for a long meeting.
+    """
+    import asyncio
+
+    safe_id  = re.sub(r"[^\w\-]", "", recording_id)
+    json_path = OUTPUT_DIR / f"{safe_id}.json"
+    opus_path = OUTPUT_DIR / f"{safe_id}.opus"
+
+    if not json_path.exists():
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    num_speakers = body.get("num_speakers")
+    if num_speakers is not None:
+        try:
+            num_speakers = int(num_speakers)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="num_speakers must be an integer")
+        if not 1 <= num_speakers <= 10:
+            raise HTTPException(status_code=422, detail="num_speakers must be 1–10")
+
+    # We need the original audio — Opus archive exists, WAV was deleted.
+    # Decode Opus → WAV for reprocessing, then re-archive.
+    if not opus_path.exists():
+        raise HTTPException(
+            status_code=409,
+            detail="Audio archive not found — cannot re-diarize without the original audio."
+        )
+
+    hf_token   = os.getenv("HF_TOKEN")
+    if not hf_token:
+        raise HTTPException(status_code=503, detail="HF_TOKEN not set — diarization unavailable")
+
+    whisper_model = os.getenv("WHISPER_MODEL", "medium.en")
+
+    def run_rediarize():
+        import sys, subprocess, tempfile
+        from pathlib import Path as P
+
+        # Decode Opus → temporary WAV
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_wav = P(tmp.name)
+
+        subprocess.run([
+            "ffmpeg", "-i", str(opus_path),
+            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            str(tmp_wav), "-y", "-loglevel", "error",
+        ], check=True)
+
+        # Load existing JSON for metadata
+        data = json.loads(json_path.read_text())
+        meeting_meta = data.get("meeting", {})
+
+        # Re-run processor
+        sys.path.insert(0, str(Path(__file__).parent))
+        from processor import process_recording
+
+        process_recording(
+            audio_path=tmp_wav,
+            meeting_meta=meeting_meta,
+            hf_token=hf_token,
+            whisper_model=whisper_model,
+            num_speakers=num_speakers,
+        )
+
+        # processor writes to tmp_wav's stem — move outputs to correct names
+        tmp_base = tmp_wav.with_suffix("")
+        out_base = json_path.with_suffix("")
+        for ext in [".json", ".md"]:
+            src = tmp_base.with_suffix(ext)
+            dst = out_base.with_suffix(ext)
+            if src.exists():
+                src.rename(dst)
+
+        tmp_wav.unlink(missing_ok=True)
+        return json.loads(json_path.read_text())
+
+    loop   = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, run_rediarize)
+    return result
 
 
 # ── Dev entry point ────────────────────────────────────────────────────────────
