@@ -9,7 +9,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
-body{background:#0f0e0c;color:#e0d6c8;font-family:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column}
+body{background:#0f0e0c;color:#ede4d6;font-family:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column}
 ::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-thumb{background:#2a2520;border-radius:2px}
 button{cursor:pointer;font-family:inherit;border:none;outline:none}
@@ -22,20 +22,20 @@ input,select{font-family:inherit;outline:none}
 
 /* ── List panel top ───────────────────────────────────────────────── */
 #list-top{padding:20px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0}
-.wordmark{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.18em;color:#4a4038;text-transform:uppercase;margin-bottom:16px}
+.wordmark{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.18em;color:#7a6e62;text-transform:uppercase;margin-bottom:16px}
 #search-wrap{position:relative}
 #search{width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:8px 32px 8px 14px;color:#c8bdb0;font-size:13px;transition:border-color 0.2s}
 #search:focus{border-color:rgba(203,139,74,0.5);background:rgba(255,255,255,0.06)}
-#search::placeholder{color:#3a342c}
+#search::placeholder{color:#5a4e44}
 #search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;color:#4a4038;font-size:11px;display:none;padding:2px}
-#list-count{font-size:10px;color:#3a342c;font-family:'DM Mono',monospace;margin-top:10px}
+#list-count{font-size:10px;color:#6a5e52;font-family:'DM Mono',monospace;margin-top:10px}
 
 /* ── Recording list ───────────────────────────────────────────────── */
 #rec-list{flex:1;overflow-y:auto;padding:8px 0}
-.rec-item{padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background 0.15s;border-left:2px solid transparent;position:relative}
+.rec-item{padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.07);cursor:pointer;transition:background 0.15s;border-left:2px solid transparent;position:relative}
 .rec-item:hover{background:rgba(255,255,255,0.025)}
 .rec-item.active{background:rgba(203,139,74,0.07);border-left-color:#cb8b4a}
-.rec-date{font-size:10px;color:#4a4038;font-family:'DM Mono',monospace;letter-spacing:0.05em;margin-bottom:5px}
+.rec-date{font-size:10px;color:#9a8e82;font-family:'DM Mono',monospace;letter-spacing:0.05em;margin-bottom:5px}
 .rec-topic{font-family:'Instrument Serif',Georgia,serif;font-size:15px;color:#e0d6c8;line-height:1.3;margin-bottom:6px}
 .rec-item.active .rec-topic{color:#e8b878}
 .rec-pills{display:flex;gap:6px;flex-wrap:wrap}
@@ -52,47 +52,59 @@ input,select{font-family:inherit;outline:none}
 
 /* ── Detail: header ─────────────────────────────────────────────── */
 #detail-header{padding:28px 36px 0;flex-shrink:0}
-.det-meta{font-size:10px;color:#4a4038;font-family:'DM Mono',monospace;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px}
+.det-meta{font-size:10px;color:#9a8e82;font-family:'DM Mono',monospace;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px}
 .det-title{font-family:'Instrument Serif',Georgia,serif;font-size:30px;color:#e8d8c0;font-weight:400;line-height:1.15;margin-bottom:14px}
-.det-agenda{font-size:13px;color:#7a7060;line-height:1.65;font-style:italic;margin-bottom:18px;max-width:640px}
+.det-agenda{font-size:13px;color:#9a8e80;line-height:1.65;font-style:italic;margin-bottom:18px;max-width:640px}
+.det-title-wrap{position:relative;display:inline-flex;align-items:center;gap:10px;margin-bottom:14px;max-width:100%}
+.det-title{font-family:'Instrument Serif',Georgia,serif;font-size:30px;color:#e8d8c0;font-weight:400;line-height:1.15;background:none;border:none;padding:0;width:100%;cursor:text}
+.det-title:focus{outline:none;border-bottom:1px solid rgba(203,139,74,0.4);color:#fff}
+.title-edit-hint{font-size:10px;color:#6a5e52;font-family:'DM Mono',monospace;white-space:nowrap;opacity:0;transition:opacity 0.2s}
+.det-title-wrap:hover .title-edit-hint{opacity:1}
+.title-saved{font-size:10px;color:#5a9068;font-family:'DM Mono',monospace;position:absolute;right:0;top:-16px;opacity:0;transition:opacity 0.3s}
+.title-saved.show{opacity:1}
+.orig-topic{font-size:10px;color:#7a6e62;font-family:'DM Mono',monospace;margin-bottom:16px;font-style:normal}
 
 /* ── Speaker legend ─────────────────────────────────────────────── */
 #speaker-bar{display:flex;gap:0;padding:0 36px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,0.06)}
-.spk-tab{padding:10px 16px 11px;font-size:11px;font-weight:500;color:#6a5f52;border-bottom:2px solid transparent;transition:all 0.15s;cursor:pointer;white-space:nowrap;background:none;letter-spacing:0.04em}
-.spk-tab:hover{color:#c8bdb0}
+.spk-tab{padding:10px 16px 11px;font-size:11px;font-weight:500;color:#8a7e72;border-bottom:2px solid transparent;transition:all 0.15s;cursor:pointer;white-space:nowrap;background:none;letter-spacing:0.04em}
+.spk-tab:hover{color:#e0d4c0}
 .spk-tab.active{border-bottom-color:currentColor}
 .spk-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;opacity:0.9}
 
 /* ── Re-diarize controls ────────────────────────────────────────── */
-#redialog-bar{display:flex;align-items:center;gap:12px;padding:10px 36px;background:#0d0c0a;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0}
-#redialog-bar label{font-size:11px;color:#4a4038;font-family:'DM Mono',monospace;white-space:nowrap}
-#spk-count{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;color:#c8bdb0;font-size:12px;padding:5px 10px;width:60px}
-#spk-count:focus{border-color:rgba(203,139,74,0.4)}
-#btn-rediarize{background:rgba(203,139,74,0.12);border:1px solid rgba(203,139,74,0.2);color:#cb8b4a;font-size:11px;padding:5px 14px;border-radius:6px;letter-spacing:0.04em;transition:all 0.2s}
+#redialog-bar{display:flex;align-items:center;gap:16px;padding:10px 36px;background:#0d0c0a;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;flex-wrap:wrap}
+.spk-field{display:flex;align-items:center;gap:7px}
+.spk-field label{font-size:10px;color:#8a7e72;font-family:'DM Mono',monospace;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap}
+.spk-input{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#ddd0c0;font-size:12px;padding:5px 8px;width:52px;font-family:'DM Mono',monospace;text-align:center}
+.spk-input:focus{border-color:rgba(203,139,74,0.4);outline:none}
+.spk-input.active-constraint{border-color:rgba(203,139,74,0.3);background:rgba(203,139,74,0.06)}
+.spk-divider{width:1px;height:20px;background:rgba(255,255,255,0.1)}
+.spk-hint{font-size:10px;color:#6a5e52;font-family:'DM Mono',monospace;font-style:italic}
+#btn-rediarize{background:rgba(203,139,74,0.16);border:1px solid rgba(203,139,74,0.35);color:#e0a060;font-size:11px;padding:5px 14px;border-radius:6px;letter-spacing:0.04em;transition:all 0.2s}
 #btn-rediarize:hover:not(:disabled){background:rgba(203,139,74,0.2);border-color:rgba(203,139,74,0.35)}
 #btn-rediarize:disabled{opacity:0.4;cursor:wait}
-#redialog-status{font-size:11px;color:#6a5f52;font-style:italic}
+#redialog-status{font-size:11px;color:#8a7e72;font-style:italic}
 
 /* ── Search bar ─────────────────────────────────────────────────── */
 #detail-search-bar{display:flex;align-items:center;gap:10px;padding:10px 36px;border-bottom:1px solid rgba(255,255,255,0.05);flex-shrink:0}
 #detail-search{flex:1;max-width:360px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:6px 12px;color:#c8bdb0;font-size:12px;transition:border-color 0.2s}
 #detail-search:focus{border-color:rgba(203,139,74,0.4)}
-#detail-search::placeholder{color:#3a342c}
-#match-info{font-size:11px;color:#6a5f52}
-.nav-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#6a5f52;width:22px;height:22px;border-radius:5px;font-size:11px;transition:all 0.15s}
+#detail-search::placeholder{color:#5a4e44}
+#match-info{font-size:11px;color:#8a7e72}
+.nav-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#6a5f52;width:22px;height:22px;border-radius:5px;font-size:11px;transition:all 0.15s;display:flex;align-items:center;justify-content:center;cursor:pointer;}
 .nav-btn:hover{background:rgba(255,255,255,0.08);color:#c8bdb0}
 
 /* ── Transcript turns ───────────────────────────────────────────── */
 #turns{flex:1;overflow-y:auto;padding:0 36px 60px}
-.turn-group{display:flex;gap:24px;padding:20px 0;border-bottom:1px solid rgba(255,255,255,0.035)}
+.turn-group{display:flex;gap:24px;padding:20px 0;border-bottom:1px solid rgba(255,255,255,0.07)}
 .turn-group:last-child{border-bottom:none}
 .turn-group.hl{background:rgba(203,139,74,0.04);border-radius:8px;margin:0 -8px;padding:20px 8px}
 .turn-left{width:120px;flex-shrink:0;padding-top:2px}
 .turn-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;margin-bottom:6px}
 .turn-spk-name{font-size:11px;font-weight:500;margin-bottom:3px}
-.turn-time{font-size:10px;color:#4a4038;font-family:'DM Mono',monospace}
+.turn-time{font-size:10px;color:#7a6e62;font-family:'DM Mono',monospace}
 .turn-body{flex:1;padding-top:6px}
-.turn-text{font-size:14.5px;color:#c8bdb0;line-height:1.8;font-family:'Instrument Serif',Georgia,serif;font-weight:400}
+.turn-text{font-size:14.5px;color:#d8cfc4;line-height:1.8;font-family:'Instrument Serif',Georgia,serif;font-weight:400}
 mark{background:rgba(203,139,74,0.22);color:#e8b878;border-radius:2px;padding:0 1px}
 
 /* ── Loading overlay ────────────────────────────────────────────── */
@@ -104,12 +116,52 @@ mark{background:rgba(203,139,74,0.22);color:#e8b878;border-radius:2px;padding:0 
 
 /* misc */
 .dim{color:#4a4038;font-size:13px;padding:40px;text-align:center}
+
+/* Split mode */
+#btn-split-mode{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#8a7e72;font-size:11px;padding:5px 12px;border-radius:6px;letter-spacing:0.04em;transition:all 0.2s;margin-left:8px}
+#btn-split-mode:hover{background:rgba(255,255,255,0.08);color:#c8bdb0}
+#btn-split-mode.active{background:rgba(180,120,60,0.15);border-color:rgba(180,120,60,0.4);color:#e0a060}
+.split-banner{background:rgba(180,120,60,0.08);border-bottom:1px solid rgba(180,120,60,0.2);padding:8px 36px;font-size:11px;color:#b07840;font-family:'DM Mono',monospace;flex-shrink:0;display:none}
+.split-banner.show{display:block}
+.turn-group{position:relative}
+.turn-timestamp-big{display:none;position:absolute;left:-80px;top:50%;transform:translateY(-50%);font-size:12px;color:#6a5e52;font-family:'DM Mono',monospace;text-align:right;width:72px;transition:color 0.15s}
+body.split-mode .turn-timestamp-big{display:block}
+body.split-mode .turn-group:hover .turn-timestamp-big{color:#e0a060}
+.btn-split-here{display:none;position:absolute;right:0;top:50%;transform:translateY(-50%);background:rgba(180,120,60,0.12);border:1px solid rgba(180,120,60,0.25);color:#c08040;font-size:10px;padding:4px 10px;border-radius:5px;letter-spacing:0.05em;font-family:'DM Mono',monospace;white-space:nowrap;transition:all 0.15s}
+body.split-mode .turn-group:hover .btn-split-here{display:block}
+body.split-mode .btn-split-here:hover{background:rgba(180,120,60,0.25);border-color:rgba(180,120,60,0.5);color:#e8b060}
+body.split-mode #turns{padding-left:96px}
+body.split-mode .turn-group{border-bottom:1px solid rgba(180,120,60,0.08)}
+
+/* Split confirm dialog */
+#split-confirm{display:none;position:fixed;inset:0;background:rgba(10,9,8,0.88);z-index:200;align-items:center;justify-content:center}
+#split-confirm.show{display:flex}
+.split-dialog{background:#1a1610;border:1px solid rgba(180,120,60,0.3);border-radius:10px;padding:28px 32px;max-width:400px;width:90%}
+.split-dialog h3{font-family:'Instrument Serif',Georgia,serif;font-size:20px;color:#e8d8c0;font-weight:400;margin-bottom:8px}
+.split-dialog p{font-size:13px;color:#8a7e72;line-height:1.6;margin-bottom:24px}
+.split-dialog .time{font-family:'DM Mono',monospace;font-size:22px;color:#e0a060;display:block;margin:12px 0}
+.split-actions{display:flex;gap:10px;justify-content:flex-end}
+.btn-confirm-split{background:rgba(180,120,60,0.2);border:1px solid rgba(180,120,60,0.4);color:#e0a060;font-size:12px;padding:8px 20px;border-radius:6px;transition:all 0.2s}
+.btn-confirm-split:hover{background:rgba(180,120,60,0.35)}
+.btn-cancel-split{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#6a5e52;font-size:12px;padding:8px 16px;border-radius:6px}
+.btn-cancel-split:hover{color:#c8bdb0;background:rgba(255,255,255,0.08)}
 </style>
 </head>
 <body>
 
+<div id="split-confirm">
+  <div class="split-dialog">
+    <h3>Split recording</h3>
+    <p>Create two recordings — everything before and after:<span class="time" id="split-time-display"></span></p>
+    <p style="font-size:11px;color:#5a4e44">The original will be kept with an _original suffix.</p>
+    <div class="split-actions">
+      <button class="btn-cancel-split" id="btn-cancel-split">Cancel</button>
+      <button class="btn-confirm-split" id="btn-confirm-split">⟂ Split here</button>
+    </div>
+  </div>
+</div>
+
 <div id="shell">
-  <!-- LEFT: recording list -->
   <div id="list-panel">
     <div id="list-top">
       <div class="wordmark">Transcripts</div>
@@ -122,7 +174,6 @@ mark{background:rgba(203,139,74,0.22);color:#e8b878;border-radius:2px;padding:0 
     <div id="rec-list"><div class="rec-empty">Loading…</div></div>
   </div>
 
-  <!-- RIGHT: detail -->
   <div id="detail-panel">
     <div id="empty-state">
       <div class="big">No recording selected</div>
@@ -207,7 +258,7 @@ function renderDetail(){
   if(hlPos>=matchIdx.length)hlPos=0;
 
   const dur=fmtDur(meeting.duration_minutes,meeting.start_time||meeting.local_joined,meeting.local_left);
-  const numSpk=allSpeakers.length||1;
+  const numSpk=allSpeakers.length||2;
 
   // Speaker tab bar
   const tabsHtml='<div id="speaker-bar">'+
@@ -221,13 +272,23 @@ function renderDetail(){
         '<span class="spk-dot" style="background:'+col+'"></span>'+esc(s.split(' ')[0])+
         '</button>';
     }).join('')+
+  '</div>'+   // closes inner flex div
+    '<button id="btn-split-mode" style="margin-top:4px;flex-shrink:0">⟂ Split recording</button>'+
   '</div>';
 
+
   // Re-diarize bar
+  const splitBannerHtml='<div class="split-banner" id="split-banner">'+
+    '⟂ Split mode — hover a turn and click to split the recording at that point. Click the button again to exit.'+
+  '</div>';
+
   const rediarHtml='<div id="redialog-bar">'+
-    '<label>Speakers in this meeting</label>'+
-    '<input id="spk-count" type="number" min="1" max="10" value="'+numSpk+'">'+
-    '<button id="btn-rediarize">↻ Re-run diarization</button>'+
+    '<div class="spk-field"><label>Exact</label><input class="spk-input" id="spk-num" type="number" min="1" placeholder="—" value="'+numSpk+'"></div>'+
+    '<div class="spk-divider"></div>'+
+    '<div class="spk-field"><label>Min</label><input class="spk-input" id="spk-min" type="number" min="1" placeholder="—"></div>'+
+    '<div class="spk-field"><label>Max</label><input class="spk-input" id="spk-max" type="number" min="1" placeholder="—"></div>'+
+    '<span class="spk-hint" id="spk-hint">leave blank for auto-detect</span>'+
+    '<button id="btn-rediarize" style="margin-left:auto">↻ Re-run diarization</button>'+
     '<span id="redialog-status"></span>'+
   '</div>';
 
@@ -240,13 +301,24 @@ function renderDetail(){
       '<button class="nav-btn" id="nav-dn">↓</button>':
       (q?'<span id="match-info" style="color:#5a3a2a">no matches</span>':'')
     )+
+    '<div style="display:flex; align-items:center; gap:8px; margin-left:auto; border-left:1px solid rgba(255,255,255,0.1); padding-left:16px;">'+
+      '<span style="font-size:11px; color:#8a7e72;">Jump to (s):</span>'+
+      '<input id="jump-time-input" type="number" step="0.001" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:6px; padding:4px 8px; color:#c8bdb0; font-size:11px; width:70px;" placeholder="1901.894">'+
+      '<button class="nav-btn" id="btn-jump-split" style="width:auto; padding:0 8px;">Split</button>'+
+    '</div>'+
   '</div>';
 
   // Header
   const displayPeople=participants.length?participants:allSpeakers.map(s=>({name:s}));
   const headerHtml='<div id="detail-header">'+
     '<div class="det-meta">'+fmtDate(meeting.start_time||meeting.local_joined)+(dur?' · '+dur:'')+(meeting.topic?' · '+esc(srcLabel(activeData._src)):'')+'</div>'+
-    '<div class="det-title">'+esc(meeting.topic||'Meeting')+'</div>'+
+    '<div class="det-title-wrap">'+
+      '<input class="det-title" id="title-input" value="'+esc(meeting.topic||'Meeting')+'" spellcheck="false">'+
+      '<span class="title-edit-hint">click to rename</span>'+
+      '<span class="title-saved" id="title-saved">✓ saved</span>'+
+    '</div>'+
+    (meeting.original_topic&&meeting.original_topic!==meeting.topic?
+      '<div class="orig-topic">original: '+esc(meeting.original_topic)+'</div>':'')+
     (meeting.agenda?'<div class="det-agenda">'+esc(meeting.agenda)+'</div>':'')+
   '</div>';
 
@@ -264,11 +336,12 @@ function renderDetail(){
       '</div>'+
       '<div class="turn-body">'+
         '<div class="turn-text">'+hlText(t.text,detailQ)+'</div>'+
+        '<button class="btn-split-here" data-start="'+t.start+'" data-time="'+fmtTime(t.start)+'">⟂ Split here</button>'+
       '</div>'+
     '</div>';
   }).join(''):'<div class="dim">No turns for this speaker</div>';
 
-  dp.innerHTML=headerHtml+tabsHtml+rediarHtml+searchBarHtml+'<div id="turns">'+turnsHtml+'</div>';
+  dp.innerHTML=headerHtml+tabsHtml+splitBannerHtml+rediarHtml+searchBarHtml+'<div id="turns">'+turnsHtml+'</div>';
 
   // Scroll to highlight
   if(matchIdx.length>0)scrollToHl();
@@ -288,12 +361,92 @@ function renderDetail(){
     setTimeout(()=>{const el=document.getElementById('detail-search');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);
   });
 
+  // Wire Jump-to-Split Button
+  document.getElementById('btn-jump-split')?.addEventListener('click', () => {
+    const val = parseFloat(document.getElementById('jump-time-input').value);
+    if (!isNaN(val) && val > 0) {
+      pendingSplitAt = val;
+      document.getElementById('split-time-display').textContent = fmtTime(val);
+      document.getElementById('split-confirm').classList.add('show');
+    }
+  });
+
   // Nav buttons
   document.getElementById('nav-up')?.addEventListener('click',()=>{if(matchIdx.length){hlPos=(hlPos-1+matchIdx.length)%matchIdx.length;updateHl();}});
   document.getElementById('nav-dn')?.addEventListener('click',()=>{if(matchIdx.length){hlPos=(hlPos+1)%matchIdx.length;updateHl();}});
 
+  // Rename
+  // Split mode button
+  const splitBtn=document.getElementById('btn-split-mode');
+  if(splitBtn){
+    splitBtn.classList.toggle('active',splitMode);
+    splitBtn.textContent=splitMode?'✕ Exit split mode':'⟂ Split recording';
+    splitBtn.addEventListener('click',toggleSplitMode);
+  }
+
+  const titleInput=document.getElementById('title-input');
+  if(titleInput){
+    let saveTimer=null;
+    const saveTitle=async()=>{
+      const val=titleInput.value.trim();
+      if(!val||val===(activeData.meeting?.topic||'')) return;
+      try{
+        const res=await fetch(API+'/api/recordings/'+activeId,{
+          method:'PATCH',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({topic:val}),
+        });
+        if(!res.ok) throw new Error();
+        const d=await res.json();
+        if(!activeData.meeting) activeData.meeting={};
+        activeData.meeting.topic=d.topic;
+        // Update sidebar
+        const rec=allRecs.find(r=>r.id===activeId);
+        if(rec) rec.topic=d.topic;
+        renderList();
+        // Flash saved
+        const saved=document.getElementById('title-saved');
+        if(saved){saved.classList.add('show');setTimeout(()=>saved.classList.remove('show'),2000);}
+      }catch(e){ titleInput.style.borderColor='rgba(200,80,60,0.5)'; }
+    };
+    titleInput.addEventListener('blur',saveTitle);
+    titleInput.addEventListener('keydown',e=>{
+      if(e.key==='Enter'){e.preventDefault();titleInput.blur();}
+      if(e.key==='Escape'){titleInput.value=activeData.meeting?.topic||'';titleInput.blur();}
+    });
+  }
+
+  // Speaker count field interactivity — typing in "exact" clears min/max and vice versa
+  document.getElementById('spk-num')?.addEventListener('input',e=>{
+    if(e.target.value){
+      document.getElementById('spk-min').value='';
+      document.getElementById('spk-max').value='';
+      e.target.classList.add('active-constraint');
+      document.getElementById('spk-min').classList.remove('active-constraint');
+      document.getElementById('spk-max').classList.remove('active-constraint');
+      document.getElementById('spk-hint').textContent='exact count — overrides min/max';
+    } else {
+      e.target.classList.remove('active-constraint');
+      document.getElementById('spk-hint').textContent='leave blank for auto-detect';
+    }
+  });
+  ['spk-min','spk-max'].forEach(id=>{
+    document.getElementById(id)?.addEventListener('input',e=>{
+      if(e.target.value){
+        document.getElementById('spk-num').value='';
+        document.getElementById('spk-num').classList.remove('active-constraint');
+        e.target.classList.add('active-constraint');
+        const minV=document.getElementById('spk-min').value;
+        const maxV=document.getElementById('spk-max').value;
+        document.getElementById('spk-hint').textContent=minV&&maxV?'range: '+minV+' – '+maxV+' speakers':'set both for a range';
+      } else {
+        e.target.classList.remove('active-constraint');
+      }
+    });
+  });
+
   // Re-diarize
-  document.getElementById('btn-rediarize').addEventListener('click',runRediarize);
+  document.getElementById('btn-rediarize')?.addEventListener('click',runRediarize);
 }
 
 function scrollToHl(){
@@ -312,18 +465,29 @@ function updateHl(){
 
 /* ── Re-diarize ─────────────────────────────────────────────────── */
 async function runRediarize(){
-  const n=parseInt(document.getElementById('spk-count').value)||null;
+  const num=parseInt(document.getElementById('spk-num')?.value)||null;
+  const min=parseInt(document.getElementById('spk-min')?.value)||null;
+  const max=parseInt(document.getElementById('spk-max')?.value)||null;
+  if(min&&max&&min>max){
+    document.getElementById('redialog-status').textContent='✗ min must be ≤ max';
+    return;
+  }
+  const body={};
+  if(num) body.num_speakers=num;
+  if(min) body.min_speakers=min;
+  if(max) body.max_speakers=max;
+  const desc=num?num+' speakers':((min||'?')+' – '+(max||'?')+' speakers');
   const btn=document.getElementById('btn-rediarize');
   const status=document.getElementById('redialog-status');
   btn.disabled=true;
   status.textContent='';
-  document.getElementById('loading-msg').textContent='Re-running diarization'+(n?' for '+n+' speakers':'')+'… this takes 1–2 minutes';
+  document.getElementById('loading-msg').textContent='Re-running diarization ('+desc+')… this takes 1–2 minutes';
   document.getElementById('loading-overlay').classList.add('show');
   try{
     const res=await fetch(API+'/api/recordings/'+activeId+'/rediarize',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({num_speakers:n}),
+      body:JSON.stringify(body),
     });
     if(!res.ok){const e=await res.json();throw new Error(e.detail||'Server error '+res.status);}
     activeData=await res.json();
@@ -393,6 +557,62 @@ document.getElementById('search-clear').addEventListener('click',()=>{
 });
 
 loadList();
+
+// ── Split mode ────────────────────────────────────────────────────────────────
+let splitMode = false;
+let pendingSplitAt = null;
+
+function toggleSplitMode() {
+  splitMode = !splitMode;
+  document.body.classList.toggle('split-mode', splitMode);
+  const btn = document.getElementById('btn-split-mode');
+  if (btn) { btn.classList.toggle('active', splitMode); btn.textContent = splitMode ? '✕ Exit split mode' : '⟂ Split recording'; }
+  const banner = document.getElementById('split-banner');
+  if (banner) banner.classList.toggle('show', splitMode);
+}
+
+document.getElementById('detail-panel').addEventListener('click', e => {
+  const splitBtn = e.target.closest('.btn-split-here');
+  if (!splitBtn) return;
+  pendingSplitAt = parseFloat(splitBtn.dataset.start);
+  document.getElementById('split-time-display').textContent = splitBtn.dataset.time;
+  document.getElementById('split-confirm').classList.add('show');
+});
+
+document.getElementById('btn-cancel-split').addEventListener('click', () => {
+  document.getElementById('split-confirm').classList.remove('show');
+  pendingSplitAt = null;
+});
+
+document.getElementById('btn-confirm-split').addEventListener('click', async () => {
+  if (pendingSplitAt === null) return;
+  document.getElementById('split-confirm').classList.remove('show');
+  document.getElementById('loading-msg').textContent = 'Splitting recording at ' + fmtTime(pendingSplitAt) + '…';
+  document.getElementById('loading-overlay').classList.add('show');
+  try {
+    const res = await fetch(API + '/api/recordings/' + activeId + '/split', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({split_at: pendingSplitAt}),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Server error'); }
+    const result = await res.json();
+    // Reload the full recording list and open part 1
+    splitMode = false;
+    document.body.classList.remove('split-mode');
+    activeId = null; activeData = null;
+    const listRes = await fetch(API + '/api/recordings');
+    const listData = await listRes.json();
+    allRecs = listData.recordings || [];
+    renderList();
+    loadRecording(result.part1_id);
+  } catch(e) {
+    alert('Split failed: ' + e.message);
+  } finally {
+    document.getElementById('loading-overlay').classList.remove('show');
+    pendingSplitAt = null;
+  }
+});
 </script>
 </body>
 </html>

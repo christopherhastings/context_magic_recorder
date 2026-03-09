@@ -353,19 +353,30 @@ def process_recording(
     hf_token: str,
     whisper_model: str = "medium.en",
     num_speakers: Optional[int] = None,
+    min_speakers: Optional[int] = None,
+    max_speakers: Optional[int] = None,
     participant_names: Optional[list[str]] = None,
 ) -> tuple[Path, Path]:
     """
     Full pipeline. Returns (json_path, markdown_path).
 
+    Speaker count params (all optional, use whichever you know):
+      num_speakers  — exact count, sets min=max=N
+      min_speakers  — floor for auto-detection (default 1)
+      max_speakers  — ceiling for auto-detection
+
     Stereo WAV (Zoom):
       Left  = remote audio → Whisper + pyannote diarization
       Right = mic (you)    → Whisper only, labelled "You"
-      num_speakers - 1 is passed to diarization (you are already separated out)
+      max for remote channel = max_speakers - 1 (you are already separated)
 
     Mono WAV (Meet):
       Single channel → Whisper + pyannote diarization across everyone
     """
+    # Normalise: num_speakers is shorthand for min=max=N
+    if num_speakers is not None:
+        min_speakers = min_speakers or num_speakers
+        max_speakers = max_speakers or num_speakers
     base = audio_path.with_suffix("")
     logger.info(f"=== Processing: {audio_path.name} ===")
 
@@ -380,11 +391,12 @@ def process_recording(
         left_words = transcribe(left_path, model_size=whisper_model)
 
         # min=1 (could be one remote speaker), max=num_speakers-1 (you are separate)
-        remote_max = max(1, (num_speakers or 8) - 1)
-        logger.info(f"Diarizing remote channel (auto-detect, max {remote_max} remote speakers)...")
+        remote_min = max(1, (min_speakers or 1) - 1) if (min_speakers or 1) > 1 else 1
+        remote_max = max(1, (max_speakers or 8) - 1)
+        logger.info(f"Diarizing remote channel (min={remote_min} max={remote_max} remote speakers)...")
         left_diarization = diarize(
             left_path, hf_token=hf_token,
-            min_speakers=1,
+            min_speakers=remote_min,
             max_speakers=remote_max,
         )
         all_diarization = left_diarization
@@ -395,8 +407,9 @@ def process_recording(
         right_words  = transcribe(right_path, model_size=whisper_model)
         local_turns  = words_to_turns_single_speaker(right_words, speaker="You")
 
-        left_path.unlink(missing_ok=True)
-        right_path.unlink(missing_ok=True)
+        # TODO: re-enable after diarization testing
+        # left_path.unlink(missing_ok=True)
+        # right_path.unlink(missing_ok=True)
 
         turns = merge_turns(remote_turns, local_turns)
 
@@ -405,8 +418,8 @@ def process_recording(
         words       = transcribe(audio_path, model_size=whisper_model)
         diarization = diarize(
             audio_path, hf_token=hf_token,
-            min_speakers=1,
-            max_speakers=num_speakers,  # None = fully automatic
+            min_speakers=min_speakers or 1,
+            max_speakers=max_speakers,  # None = fully automatic
         )
         all_diarization = diarization
         turns = words_to_turns_with_diarization(words, diarization)

@@ -19,6 +19,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Load .env from same directory as this file
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass  # dotenv optional — fall back to environment variables
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -27,6 +34,33 @@ from fastapi.staticfiles import StaticFiles
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", str(Path.home() / "Recordings")))
 
 app = FastAPI(title="Recorder API", version="1.0.0")
+
+
+def resolve_recording(recording_id: str) -> tuple[Path, Path]:
+    """
+    Given a recording_id (which may have had special chars stripped by the URL),
+    return (json_path, opus_path) for the best matching recording.
+    Raises HTTPException 404 if nothing found.
+    """
+    safe_id = re.sub(r"[^\w\-]", "", recording_id)
+
+    # Exact match first
+    json_path = OUTPUT_DIR / f"{safe_id}.json"
+    if json_path.exists():
+        return json_path, json_path.with_suffix(".opus")
+
+    # Prefix fallback — match on timestamp + source (first 3 _ segments)
+    # e.g. "2026-02-24_09-05-06_zoom" covers any topic variation
+    parts = safe_id.split("_")
+    if len(parts) >= 3:
+        prefix = "_".join(parts[:3])
+        candidates = sorted(OUTPUT_DIR.glob(f"{prefix}*.json"))
+        if candidates:
+            # Pick closest stem length to what was requested
+            best = min(candidates, key=lambda p: abs(len(p.stem) - len(safe_id)))
+            return best, best.with_suffix(".opus")
+
+    raise HTTPException(status_code=404, detail=f"Recording not found: {recording_id}")
 
 # Allow the React viewer (Vite dev server or file://) to call this
 app.add_middleware(
@@ -126,15 +160,9 @@ def list_recordings():
 @app.get("/api/recordings/{recording_id}")
 def get_recording(recording_id: str):
     """Full transcript data for a single recording."""
-    # Sanitise ID — no path traversal
-    safe_id = re.sub(r"[^\w\-]", "", recording_id)
-    path = OUTPUT_DIR / f"{safe_id}.json"
-
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"Recording not found: {recording_id}")
-
+    json_path, _ = resolve_recording(recording_id)
     try:
-        return load_recording(path)
+        return load_recording(json_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -205,6 +233,32 @@ def health():
     return {"ok": True, "output_dir": str(OUTPUT_DIR), "exists": OUTPUT_DIR.exists()}
 
 
+
+@app.patch("/api/recordings/{recording_id}")
+def rename_recording(recording_id: str, body: dict):
+    """
+    Update mutable fields on a recording.
+    Currently supports: {"topic": "New name"}
+    """
+    json_path, _ = resolve_recording(recording_id)
+    try:
+        data = json.loads(json_path.read_text())
+        if "topic" in body:
+            new_topic = str(body["topic"]).strip()[:120]
+            if not new_topic:
+                raise HTTPException(status_code=422, detail="Topic cannot be empty")
+            data.setdefault("meeting", {})["topic"] = new_topic
+            # Also store original if not already saved
+            if "original_topic" not in data["meeting"] and data["meeting"].get("topic") != new_topic:
+                data["meeting"]["original_topic"] = data["meeting"].get("topic", "")
+            data["meeting"]["topic"] = new_topic
+        json_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        return {"ok": True, "topic": data["meeting"]["topic"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/recordings/{recording_id}/rediarize")
 async def rediarize(recording_id: str, body: dict):
     """
@@ -215,21 +269,31 @@ async def rediarize(recording_id: str, body: dict):
     """
     import asyncio
 
-    safe_id  = re.sub(r"[^\w\-]", "", recording_id)
-    json_path = OUTPUT_DIR / f"{safe_id}.json"
-    opus_path = OUTPUT_DIR / f"{safe_id}.opus"
+    json_path, opus_path = resolve_recording(recording_id)
 
-    if not json_path.exists():
-        raise HTTPException(status_code=404, detail="Recording not found")
-
-    num_speakers = body.get("num_speakers")
-    if num_speakers is not None:
+    def _parse_int(key, lo, hi):
+        val = body.get(key)
+        if val is None:
+            return None
         try:
-            num_speakers = int(num_speakers)
+            val = int(val)
         except (ValueError, TypeError):
-            raise HTTPException(status_code=422, detail="num_speakers must be an integer")
-        if not 1 <= num_speakers <= 10:
-            raise HTTPException(status_code=422, detail="num_speakers must be 1–10")
+            raise HTTPException(status_code=422, detail=f"{key} must be an integer")
+        if not lo <= val <= hi:
+            raise HTTPException(status_code=422, detail=f"{key} must be {lo}–{hi}")
+        return val
+
+    num_speakers = _parse_int("num_speakers", 1, 10)
+    min_speakers = _parse_int("min_speakers", 1, 10)
+    max_speakers = _parse_int("max_speakers", 1, 10)
+
+    # num_speakers is a shorthand for min=max=N
+    if num_speakers is not None:
+        min_speakers = min_speakers or num_speakers
+        max_speakers = max_speakers or num_speakers
+
+    if min_speakers and max_speakers and min_speakers > max_speakers:
+        raise HTTPException(status_code=422, detail="min_speakers must be ≤ max_speakers")
 
     # We need the original audio — Opus archive exists, WAV was deleted.
     # Decode Opus → WAV for reprocessing, then re-archive.
@@ -272,7 +336,8 @@ async def rediarize(recording_id: str, body: dict):
             meeting_meta=meeting_meta,
             hf_token=hf_token,
             whisper_model=whisper_model,
-            num_speakers=num_speakers,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
         )
 
         # processor writes to tmp_wav's stem — move outputs to correct names
@@ -289,6 +354,122 @@ async def rediarize(recording_id: str, body: dict):
 
     loop   = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, run_rediarize)
+    return result
+
+
+@app.post("/api/recordings/{recording_id}/split")
+async def split_recording(recording_id: str, body: dict):
+    """
+    Split a recording into two at a given timestamp.
+
+    Body: {"split_at": 1234.5}  — seconds from start
+
+    Creates two new recordings:
+      {stem}_part1.{ext}  — 0 to split_at
+      {stem}_part2.{ext}  — split_at to end
+
+    The original is renamed to {stem}_original.{ext}.
+    Returns {"part1_id": "...", "part2_id": "..."}
+    """
+    import asyncio
+
+    json_path, opus_path = resolve_recording(recording_id)
+
+    split_at = body.get("split_at")
+    if split_at is None:
+        raise HTTPException(status_code=422, detail="split_at (seconds) required")
+    try:
+        split_at = float(split_at)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="split_at must be a number")
+    if split_at <= 0:
+        raise HTTPException(status_code=422, detail="split_at must be > 0")
+
+    if not opus_path.exists():
+        raise HTTPException(status_code=409, detail="Audio archive not found")
+
+    def run_split():
+        import subprocess, json as _json
+        from pathlib import Path as P
+
+        base   = json_path.with_suffix("")
+        p1_base = P(f"{base}_part1")
+        p2_base = P(f"{base}_part2")
+        orig_base = P(f"{base}_original")
+
+        # ── Split audio ────────────────────────────────────────────────
+        p1_opus = p1_base.with_suffix(".opus")
+        p2_opus = p2_base.with_suffix(".opus")
+
+        # Part 1: 0 → split_at
+        subprocess.run([
+            "ffmpeg", "-i", str(opus_path),
+            "-t", str(split_at),
+            "-c", "copy", str(p1_opus), "-y", "-loglevel", "error",
+        ], check=True)
+
+        # Part 2: split_at → end
+        subprocess.run([
+            "ffmpeg", "-i", str(opus_path),
+            "-ss", str(split_at),
+            "-c", "copy", str(p2_opus), "-y", "-loglevel", "error",
+        ], check=True)
+
+        # ── Split transcript ───────────────────────────────────────────
+        data     = _json.loads(json_path.read_text())
+        meeting  = data.get("meeting", {})
+        speakers = data.get("speakers", [])
+        turns    = data.get("transcript", {}).get("turns", [])
+
+        turns1 = [t for t in turns if t["start"] < split_at]
+        turns2 = [t for t in turns if t["start"] >= split_at]
+
+        # Re-zero part2 timestamps
+        turns2_zeroed = [
+            {**t, "start": round(t["start"] - split_at, 3),
+                  "end":   round(t["end"]   - split_at, 3)}
+            for t in turns2
+        ]
+
+        def make_part(part_turns, part_num, audio_file):
+            return {
+                "schema_version": "1.1",
+                "recording": {
+                    "file": str(audio_file),
+                    "processed_at": data.get("recording", {}).get("processed_at"),
+                    "split_from": str(json_path),
+                    "split_part": part_num,
+                },
+                "meeting": {
+                    **meeting,
+                    "topic": f"{meeting.get('topic', 'Meeting')} (part {part_num})",
+                    "original_topic": meeting.get("topic", ""),
+                },
+                "speakers": speakers,
+                "transcript": {"turns": part_turns},
+                "diarization_segments": [],
+            }
+
+        p1_json = p1_base.with_suffix(".json")
+        p2_json = p2_base.with_suffix(".json")
+        p1_json.write_text(_json.dumps(make_part(turns1, 1, p1_opus), indent=2))
+        p2_json.write_text(_json.dumps(make_part(turns2_zeroed, 2, p2_opus), indent=2))
+
+        # ── Rename original ────────────────────────────────────────────
+        orig_json = orig_base.with_suffix(".json")
+        orig_opus = orig_base.with_suffix(".opus")
+        json_path.rename(orig_json)
+        opus_path.rename(orig_opus)
+
+        return {
+            "part1_id": p1_base.name,
+            "part2_id": p2_base.name,
+            "original_id": orig_base.name,
+            "split_at": split_at,
+        }
+
+    loop   = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, run_split)
     return result
 
 
