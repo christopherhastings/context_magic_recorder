@@ -49,7 +49,7 @@ WHISPER_MODEL     = os.getenv("WHISPER_MODEL", "medium.en")
 HF_TOKEN          = os.getenv("HF_TOKEN")
 POLL_INTERVAL     = int(os.getenv("POLL_INTERVAL", "3"))
 WS_PORT           = int(os.getenv("WS_PORT", "8765"))
-NUM_SPEAKERS      = int(os.getenv("NUM_SPEAKERS", "4"))
+NUM_SPEAKERS      = int(os.getenv("NUM_SPEAKERS")) if os.getenv("NUM_SPEAKERS") else None
 CLOUD_API_ENABLED = bool(os.getenv("ZOOM_ACCOUNT_ID"))
 STATUS_FILE       = Path("/tmp/recorder_status.json")
 

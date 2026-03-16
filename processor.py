@@ -180,13 +180,13 @@ def words_to_turns_with_diarization(words: list[Word],
     """Assign each word to a speaker via diarization, collapse into turns."""
 
     def speaker_at(t: float) -> str:
-        best, best_overlap = None, 0.0
+        # Find the diarization segment that contains t
         for seg in diarization:
-            overlap = min(t, seg["end"]) - max(t, seg["start"])
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best = seg["speaker"]
-        return best or "UNKNOWN"
+            if seg["start"] <= t <= seg["end"]:
+                return seg["speaker"]
+        # t falls in a gap — snap to the nearest segment boundary
+        best = min(diarization, key=lambda s: min(abs(t - s["start"]), abs(t - s["end"])), default=None)
+        return best["speaker"] if best else "UNKNOWN"
 
     labeled = [(speaker_at((w.start + w.end) / 2), w) for w in words]
 
