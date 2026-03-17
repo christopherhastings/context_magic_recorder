@@ -318,7 +318,7 @@ async def rediarize(recording_id: str, body: dict):
             tmp_wav = P(tmp.name)
 
         subprocess.run([
-            "ffmpeg", "-i", str(opus_path),
+            "/usr/local/bin/ffmpeg", "-i", str(opus_path),
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
             str(tmp_wav), "-y", "-loglevel", "error",
         ], check=True)
@@ -403,14 +403,14 @@ async def split_recording(recording_id: str, body: dict):
 
         # Part 1: 0 → split_at
         subprocess.run([
-            "ffmpeg", "-i", str(opus_path),
+            "/usr/local/bin/ffmpeg", "-i", str(opus_path),
             "-t", str(split_at),
             "-c", "copy", str(p1_opus), "-y", "-loglevel", "error",
         ], check=True)
 
         # Part 2: split_at → end
         subprocess.run([
-            "ffmpeg", "-i", str(opus_path),
+            "/usr/local/bin/ffmpeg", "-i", str(opus_path),
             "-ss", str(split_at),
             "-c", "copy", str(p2_opus), "-y", "-loglevel", "error",
         ], check=True)

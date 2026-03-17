@@ -29,7 +29,20 @@ from processor import process_recording
 from zoom_cloud import wait_and_fetch
 from audio_router import get_router
 
-load_dotenv()
+# Absolute path resolution for background processes
+BASE_DIR = Path(__file__).resolve().parent
+env_path = BASE_DIR / ".env"
+
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+else:
+    # This will show up in /tmp/recorder_daemon.log
+    print(f"--- CRITICAL: .env file not found at {env_path} ---")
+
+# Double check the token is actually in memory now
+HF_TOKEN = os.getenv("HF_TOKEN")
+if not HF_TOKEN:
+    print(f"--- WARNING: .env loaded but HF_TOKEN is missing or empty ---")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,7 +60,6 @@ BLACKHOLE_DEVICE  = os.getenv("BLACKHOLE_DEVICE",  "BlackHole 2ch")
 MIC_DEVICE        = os.getenv("MIC_DEVICE", "")  # auto-detect if blank
 OUTPUT_DIR        = Path(os.getenv("OUTPUT_DIR", str(Path.home() / "Recordings")))
 WHISPER_MODEL     = os.getenv("WHISPER_MODEL", "medium.en")
-HF_TOKEN          = os.getenv("HF_TOKEN")
 POLL_INTERVAL     = int(os.getenv("POLL_INTERVAL", "3"))
 WS_PORT           = int(os.getenv("WS_PORT", "8765"))
 NUM_SPEAKERS      = int(os.getenv("NUM_SPEAKERS")) if os.getenv("NUM_SPEAKERS") else None
@@ -56,6 +68,11 @@ STATUS_FILE       = Path("/tmp/recorder_status.json")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+def get_hf_token():
+    """Fetch HF_TOKEN at runtime so it's fresh after load_dotenv."""
+    return os.getenv("HF_TOKEN")
+
 
 def detect_mic_device() -> str:
     """Auto-detect the default system input device for local voice capture."""
@@ -132,7 +149,7 @@ class RecordingSession:
 
         mic = detect_mic_device()
         cmd = [
-            "ffmpeg",
+            "/usr/local/bin/ffmpeg",
             "-f", "avfoundation", "-i", f":{BLACKHOLE_DEVICE}",  # Input 0
             "-f", "avfoundation", "-i", f":{mic}",              # Input 1
             "-filter_complex", "[0:a][1:a]join=inputs=2:channel_layout=stereo[a]",
@@ -174,7 +191,7 @@ class RecordingSession:
         wav_path = self.audio_path.with_suffix(".wav")
         try:
             subprocess.run([
-                "ffmpeg", "-i", str(self.audio_path),
+                "/usr/local/bin/ffmpeg", "-i", str(self.audio_path),
                 "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
                 str(wav_path), "-y", "-loglevel", "error",
             ], check=True)
@@ -227,12 +244,12 @@ class RecordingSession:
             return
 
         try:
-            if HF_TOKEN:
+            if get_hf_token():
                 # Full pipeline: faster-whisper transcription + pyannote diarization
                 json_p, md_p = process_recording(
                     audio_path=self.audio_path,
                     meeting_meta=meta,
-                    hf_token=HF_TOKEN,
+                    hf_token=get_hf_token(),
                     whisper_model=WHISPER_MODEL,
                     num_speakers=NUM_SPEAKERS,
                 )
@@ -444,7 +461,7 @@ def main():
     logger.info(f"  Output:      {OUTPUT_DIR}")
     logger.info(f"  BlackHole:   {BLACKHOLE_DEVICE}")
     logger.info(f"  Whisper:     {WHISPER_MODEL}")
-    logger.info(f"  Diarization: {'✓' if HF_TOKEN else '✗ — set HF_TOKEN in .env'}")
+    logger.info(f"  Diarization: {'✓' if os.getenv('HF_TOKEN') else '✗ — set HF_TOKEN in .env'}")
     logger.info(f"  Zoom Cloud:  {'✓' if CLOUD_API_ENABLED else '✗ — optional'}")
     logger.info(f"  WS port:     {WS_PORT}")
     logger.info("══════════════════════════════════════")

@@ -55,7 +55,7 @@ def is_stereo(audio_path: Path) -> bool:
     """Return True if the file has 2 channels."""
     try:
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "a:0",
+            ["/usr/local/bin/ffprobe", "-v", "error", "-select_streams", "a:0",
              "-show_entries", "stream=channels",
              "-of", "default=noprint_wrappers=1:nokey=1",
              str(audio_path)],
@@ -78,13 +78,13 @@ def split_stereo(audio_path: Path) -> tuple[Path, Path]:
     right = Path(f"{base}_right.wav")
 
     subprocess.run([
-        "ffmpeg", "-i", str(audio_path),
+        "/usr/local/bin/ffmpeg", "-i", str(audio_path),
         "-af", "pan=mono|c0=c0",
         str(left), "-y", "-loglevel", "error",
     ], check=True)
 
     subprocess.run([
-        "ffmpeg", "-i", str(audio_path),
+        "/usr/local/bin/ffmpeg", "-i", str(audio_path),
         "-af", "pan=mono|c0=c1",
         str(right), "-y", "-loglevel", "error",
     ], check=True)

@@ -42,7 +42,7 @@ def archive_audio(wav_path: Path, bitrate_kbps: int = 32) -> Path | None:
     try:
         subprocess.run(
             [
-                "ffmpeg",
+                "/usr/local/bin/ffmpeg",
                 "-i", str(wav_path),
                 "-c:a", "libopus",
                 "-b:a", f"{bitrate_kbps}k",
