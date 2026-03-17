@@ -66,7 +66,7 @@ def resolve_recording(recording_id: str) -> tuple[Path, Path]:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -471,6 +471,69 @@ async def split_recording(recording_id: str, body: dict):
     loop   = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, run_split)
     return result
+
+
+# ── Notes + Context (LMStudio) ────────────────────────────────────────────────
+
+@app.post("/api/recordings/{recording_id}/summarize")
+async def summarize(recording_id: str):
+    """
+    Generate structured notes for a single recording via LMStudio.
+    Writes {stem}_notes.md alongside the transcript JSON.
+    Returns {"notes_file": "...", "ok": true}
+    """
+    import asyncio
+    from summarizer import summarize_recording
+
+    json_path, _ = resolve_recording(recording_id)
+
+    def run():
+        notes_path = summarize_recording(json_path)
+        return str(notes_path.name)
+
+    try:
+        loop = asyncio.get_event_loop()
+        notes_name = await loop.run_in_executor(None, run)
+        return {"ok": True, "notes_file": notes_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/context/update")
+async def context_update():
+    """
+    Regenerate context.md from all existing _notes.md files via LMStudio.
+    Returns {"ok": true, "context_file": "context.md", "meetings_included": N}
+    """
+    import asyncio
+    from summarizer import update_context
+
+    def run():
+        notes_files = list(OUTPUT_DIR.glob("*_notes.md"))
+        context_path = update_context(OUTPUT_DIR)
+        return len(notes_files), str(context_path.name)
+
+    try:
+        loop = asyncio.get_event_loop()
+        n, fname = await loop.run_in_executor(None, run)
+        return {"ok": True, "context_file": fname, "meetings_included": n}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/context")
+def get_context():
+    """Return context.md contents and whether it exists."""
+    context_path = OUTPUT_DIR / "context.md"
+    if not context_path.exists():
+        return {"exists": False, "content": "", "notes_count": 0}
+    notes_count = len(list(OUTPUT_DIR.glob("*_notes.md")))
+    return {
+        "exists": True,
+        "content": context_path.read_text(encoding="utf-8"),
+        "notes_count": notes_count,
+        "updated_at": datetime.fromtimestamp(context_path.stat().st_mtime).isoformat(),
+    }
 
 
 # ── Dev entry point ────────────────────────────────────────────────────────────
