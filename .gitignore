@@ -2,3 +2,4 @@
 __pycache__/
 .claude/
 context_magic_recorder/
+venv/

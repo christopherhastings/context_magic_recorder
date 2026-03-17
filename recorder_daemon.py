@@ -44,6 +44,7 @@ logger = logging.getLogger("daemon")
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 BLACKHOLE_DEVICE  = os.getenv("BLACKHOLE_DEVICE",  "BlackHole 2ch")
+MIC_DEVICE        = os.getenv("MIC_DEVICE", "")  # auto-detect if blank
 OUTPUT_DIR        = Path(os.getenv("OUTPUT_DIR", str(Path.home() / "Recordings")))
 WHISPER_MODEL     = os.getenv("WHISPER_MODEL", "medium.en")
 HF_TOKEN          = os.getenv("HF_TOKEN")
@@ -55,6 +56,20 @@ STATUS_FILE       = Path("/tmp/recorder_status.json")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+def detect_mic_device() -> str:
+    """Auto-detect the default system input device for local voice capture."""
+    if MIC_DEVICE:
+        return MIC_DEVICE
+    try:
+        import sounddevice as sd
+        info = sd.query_devices(sd.default.device[0])
+        name = info["name"]
+        logger.info(f"[mic] auto-detected: {name}")
+        return name
+    except Exception:
+        return "MacBook Pro Microphone"
+
 
 def write_status(state: str, **kwargs):
     try:
@@ -115,10 +130,14 @@ class RecordingSession:
                     "other apps playing audio may appear in this recording."
                 )
 
+        mic = detect_mic_device()
         cmd = [
-            "ffmpeg", "-f", "avfoundation",
-            "-i", f":{BLACKHOLE_DEVICE}",
-            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            "ffmpeg",
+            "-f", "avfoundation", "-i", f":{BLACKHOLE_DEVICE}",  # Input 0
+            "-f", "avfoundation", "-i", f":{mic}",              # Input 1
+            "-filter_complex", "[0:a][1:a]join=inputs=2:channel_layout=stereo[a]",
+            "-map", "[a]",
+            "-ar", "16000", "-ac", "2", "-c:a", "pcm_s16le",
             str(self.audio_path), "-y", "-loglevel", "error",
         ]
         self._ffmpeg_proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
@@ -295,42 +314,35 @@ class ZoomWatcher:
     def _tick(self):
         info = self._detector.poll()
 
+        # If a meeting is happening
         if info.in_call:
-            self._miss_count = 0   # reset debounce on any positive detection
+            self._miss_count = 0
 
+            # CASE A: A new meeting just started
             if not self._in_call:
-                # Call just started
                 self._in_call = True
                 self._recording_since = datetime.now()
-                logger.info(f"[zoom] 🔴 {info.topic}")
                 self._session = RecordingSession("zoom", {"topic": info.topic})
                 self._session.start_ffmpeg()
-                write_status("recording",
-                    meeting_topic=info.topic,
-                    source="zoom",
-                    recording_since=self._recording_since.isoformat(),
-                )
+                write_status("recording", topic=info.topic, meeting_topic=info.topic)
+                logger.info(f"[zoom] 🔴 {info.topic}")
                 notify(f"Recording: {info.topic}", "Zoom call detected")
-            else:
-                # Still in call — refresh status so menu bar stays current
-                elapsed = (datetime.now() - self._recording_since).total_seconds()
-                write_status("recording",
-                    meeting_topic=info.topic,
-                    source="zoom",
-                    recording_since=self._recording_since.isoformat(),
-                    elapsed_seconds=int(elapsed),
-                )
 
+            # CASE B: Topic changed while already in a call (back-to-back meetings)
+            elif self._session and info.topic != self._session.meta.get("topic"):
+                logger.info(f"Topic changed: {info.topic}. Restarting session.")
+                self._session.stop()
+                self._session.post_process_async()
+                self._session = RecordingSession("zoom", {"topic": info.topic})
+                self._session.start_ffmpeg()
+                write_status("recording", topic=info.topic, meeting_topic=info.topic)
+
+        # If no meeting detected
         else:
             if self._in_call:
                 self._miss_count += 1
-                logger.debug(f"[zoom] miss {self._miss_count}/{self.MISS_THRESHOLD}")
-
                 if self._miss_count >= self.MISS_THRESHOLD:
-                    # Confirmed call ended — stop and process
-                    logger.info(f"[zoom] ⏹ call ended (confirmed after {self._miss_count} misses)")
-                    self._in_call    = False
-                    self._miss_count = 0
+                    self._in_call = False
                     if self._session:
                         self._session.stop()
                         self._session.post_process_async()

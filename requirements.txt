@@ -1,21 +1,26 @@
-
-# Core
+# Core Transcription & Diarization
 faster-whisper
 pyannote.audio==3.3.2
 torch>=2.4.0,<2.6.0
 torchaudio>=2.4.0,<2.6.0
 huggingface_hub>=0.20.0,<1.0
+
+# Critical missing dependency (Pyannote requires this for segmentation)
+matplotlib
+
+# Utilities
 requests
 python-dotenv
 websockets>=12.0
 
-# API server
+# API Server (api_server.py)
 fastapi
 uvicorn[standard]
+python-multipart
 
-# Menu bar
+# Menu Bar (menubar.py)
 rumps
 
-# Audio monitor (BlackHole → headphones pass-through during recording)
+# Audio monitoring & Routing (recorder_daemon.py)
 sounddevice
 numpy
