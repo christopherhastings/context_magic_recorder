@@ -27,10 +27,34 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import rumps
+try:
+    import rumps
+except ImportError:
+    sys.stderr.write(
+        "menubar.py: missing dependency `rumps`.\n"
+        "  cd ~/recorder && source venv/bin/activate && pip install -r requirements.txt\n"
+        "Then: launchctl unload ~/Library/LaunchAgents/com.recorder.menubar.plist\n"
+        "      launchctl load  ~/Library/LaunchAgents/com.recorder.menubar.plist\n"
+    )
+    raise SystemExit(1)
+
+
+def _accessory_mode_for_menu_bar_only():
+    """
+    Without this, a process started by launchd may register no visible status item.
+    NSApplicationActivationPolicyAccessory = menu bar + no Dock icon.
+    """
+    try:
+        from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+
+        NSApplication.sharedApplication().setActivationPolicy_(
+            NSApplicationActivationPolicyAccessory
+        )
+    except Exception as exc:
+        sys.stderr.write(f"[menubar] accessory mode (non-fatal): {exc}\n")
 
 STATUS_FILE = Path("/tmp/recorder_status.json")
-POLL_SECS   = 2
+POLL_SECS   = 1
 
 # ── Icons (using Unicode — no image assets needed) ────────────────────────────
 ICON_IDLE     = "⬤"   # filled circle — green via title colour hack
@@ -209,7 +233,17 @@ class RecorderMenuBar(rumps.App):
         rumps.quit_application()
 
 
+def _append_boot_log(line: str) -> None:
+    try:
+        with open("/tmp/recorder_menubar.log", "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().isoformat()} {line}\n")
+    except OSError:
+        pass
+
+
 def run():
+    _accessory_mode_for_menu_bar_only()
+    _append_boot_log("Recorder menubar starting (rumps)")
     RecorderMenuBar().run()
 
 

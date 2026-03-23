@@ -9,7 +9,9 @@ Logs:  tail -f /tmp/recorder_daemon.log
 import asyncio
 import json
 import logging
+import logging.handlers
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -22,7 +24,6 @@ import requests
 import websockets
 from dotenv import load_dotenv
 
-from zoom_detector import ZoomDetector
 from archiver import archive_audio
 from permissions import run_checks
 from processor import process_recording
@@ -35,25 +36,80 @@ env_path = BASE_DIR / ".env"
 
 if env_path.exists():
     load_dotenv(dotenv_path=env_path)
-else:
-    # This will show up in /tmp/recorder_daemon.log
-    print(f"--- CRITICAL: .env file not found at {env_path} ---")
+
+
+def configure_logging() -> Path | None:
+    """
+    Console + file logging. Env:
+      LOG_LEVEL — DEBUG, INFO (default), WARNING, ERROR
+      LOG_FILE — default /tmp/recorder_daemon.log
+      LOG_MAX_BYTES — if > 0, use RotatingFileHandler (e.g. 5242880 for 5 MiB)
+      LOG_BACKUP_COUNT — rotated files to keep (default 5)
+      ZOOM_DETECT_DEBUG — 1/true → zoom_detector logger at DEBUG
+    """
+    root = logging.getLogger()
+    root.handlers.clear()
+
+    level_name = os.getenv("LOG_LEVEL", "INFO").upper().strip()
+    level = getattr(logging, level_name, None)
+    if not isinstance(level, int):
+        level = logging.INFO
+        sys.stderr.write(f"[recorder] Invalid LOG_LEVEL={level_name!r}, using INFO\n")
+
+    root.setLevel(level)
+
+    date_fmt = "%Y-%m-%d %H:%M:%S"
+    stream_fmt = logging.Formatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s", datefmt=date_fmt
+    )
+
+    stderr_h = logging.StreamHandler(sys.stderr)
+    stderr_h.setFormatter(stream_fmt)
+    root.addHandler(stderr_h)
+
+    log_path = Path(os.getenv("LOG_FILE", "/tmp/recorder_daemon.log")).expanduser()
+    file_path: Path | None = None
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        max_bytes = int(os.getenv("LOG_MAX_BYTES", "0") or "0")
+        backup_ct = max(1, int(os.getenv("LOG_BACKUP_COUNT", "5") or "5"))
+        if max_bytes > 0:
+            fh: logging.Handler = logging.handlers.RotatingFileHandler(
+                log_path,
+                maxBytes=max_bytes,
+                backupCount=backup_ct,
+                encoding="utf-8",
+            )
+        else:
+            fh = logging.FileHandler(log_path, encoding="utf-8")
+        fh.setFormatter(stream_fmt)
+        root.addHandler(fh)
+        file_path = log_path
+    except OSError as e:
+        sys.stderr.write(f"[recorder] File logging disabled ({log_path}): {e}\n")
+
+    logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    if os.getenv("ZOOM_DETECT_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
+        logging.getLogger("zoom_detector").setLevel(logging.DEBUG)
+
+    return file_path
+
+
+LOG_FILE_PATH = configure_logging()
+logger = logging.getLogger("daemon")
+
+if not env_path.exists():
+    logger.warning("`.env` file not found at %s — set HF_TOKEN and paths there", env_path)
 
 # Double check the token is actually in memory now
 HF_TOKEN = os.getenv("HF_TOKEN")
 if not HF_TOKEN:
-    print(f"--- WARNING: .env loaded but HF_TOKEN is missing or empty ---")
+    logger.warning("HF_TOKEN is missing or empty — diarization will be skipped")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("/tmp/recorder_daemon.log"),
-    ],
-)
-logger = logging.getLogger("daemon")
+from zoom_detector import ZoomDetector
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 BLACKHOLE_DEVICE  = os.getenv("BLACKHOLE_DEVICE",  "BlackHole 2ch")
@@ -110,6 +166,23 @@ def notify(title: str, message: str = ""):
         pass
 
 
+def get_ffmpeg_binary() -> str:
+    """
+    launchd jobs get a minimal PATH — bare 'ffmpeg' often fails.
+    Prefer FFMPEG_BIN, then PATH, then Homebrew locations (Intel vs Apple Silicon).
+    """
+    env = (os.getenv("FFMPEG_BIN") or "").strip()
+    if env:
+        return env
+    which = shutil.which("ffmpeg")
+    if which:
+        return which
+    for p in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"):
+        if Path(p).is_file():
+            return p
+    return "ffmpeg"
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # RecordingSession
 # ══════════════════════════════════════════════════════════════════════════════
@@ -148,8 +221,9 @@ class RecordingSession:
                 )
 
         mic = detect_mic_device()
+        ff = get_ffmpeg_binary()
         cmd = [
-            "/usr/local/bin/ffmpeg",
+            ff,
             "-f", "avfoundation", "-i", f":{BLACKHOLE_DEVICE}",  # Input 0
             "-f", "avfoundation", "-i", f":{mic}",              # Input 1
             "-filter_complex", "[0:a][1:a]join=inputs=2:channel_layout=stereo[a]",
@@ -158,7 +232,7 @@ class RecordingSession:
             str(self.audio_path), "-y", "-loglevel", "error",
         ]
         self._ffmpeg_proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
-        logger.info(f"[{self.source}] ffmpeg → {self.audio_path.name}")
+        logger.info(f"[{self.source}] ffmpeg ({ff}) → {self.audio_path.name}")
 
     def stop_ffmpeg(self):
         if not self._ffmpeg_proc:
@@ -191,7 +265,7 @@ class RecordingSession:
         wav_path = self.audio_path.with_suffix(".wav")
         try:
             subprocess.run([
-                "/usr/local/bin/ffmpeg", "-i", str(self.audio_path),
+                get_ffmpeg_binary(), "-i", str(self.audio_path),
                 "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
                 str(wav_path), "-y", "-loglevel", "error",
             ], check=True)
@@ -358,7 +432,17 @@ class ZoomWatcher:
         else:
             if self._in_call:
                 self._miss_count += 1
+                logger.debug(
+                    "[zoom] detector miss %d/%d (not in call this poll)",
+                    self._miss_count,
+                    self.MISS_THRESHOLD,
+                )
                 if self._miss_count >= self.MISS_THRESHOLD:
+                    logger.info(
+                        "[zoom] call ended after %d consecutive out-of-call polls (~%ds)",
+                        self.MISS_THRESHOLD,
+                        self.MISS_THRESHOLD * POLL_INTERVAL,
+                    )
                     self._in_call = False
                     if self._session:
                         self._session.stop()
@@ -371,7 +455,7 @@ class ZoomWatcher:
             try:
                 self._tick()
             except Exception as e:
-                logger.error(f"[zoom] tick error: {e}")
+                logger.error("[zoom] tick error: %s", e, exc_info=True)
             time.sleep(POLL_INTERVAL)
 
 
@@ -464,6 +548,12 @@ def main():
     logger.info(f"  Diarization: {'✓' if os.getenv('HF_TOKEN') else '✗ — set HF_TOKEN in .env'}")
     logger.info(f"  Zoom Cloud:  {'✓' if CLOUD_API_ENABLED else '✗ — optional'}")
     logger.info(f"  WS port:     {WS_PORT}")
+    logger.info(f"  ffmpeg:      {get_ffmpeg_binary()}")
+    logger.info(
+        f"  Log level:   {logging.getLevelName(logging.getLogger().getEffectiveLevel())}"
+    )
+    if LOG_FILE_PATH:
+        logger.info("  Log file:    %s", LOG_FILE_PATH)
     logger.info("══════════════════════════════════════")
 
     # Check permissions first — opens System Settings if anything is missing

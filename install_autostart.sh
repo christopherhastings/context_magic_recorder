@@ -35,6 +35,8 @@ for i in "${!SERVICES[@]}"; do
     <true/>
     <key>WorkingDirectory</key>
     <string>$PROJECT_DIR</string>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
     <key>StandardOutPath</key>
     <string>/tmp/recorder_$SERVICE.log</string>
     <key>StandardErrorPath</key>

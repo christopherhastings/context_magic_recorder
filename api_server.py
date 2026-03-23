@@ -39,15 +39,26 @@ app = FastAPI(title="Recorder API", version="1.0.0")
 def resolve_recording(recording_id: str) -> tuple[Path, Path]:
     """
     Given a recording_id (which may have had special chars stripped by the URL),
-    return (json_path, opus_path) for the best matching recording.
+    return (json_path, audio_path) for the best matching recording.
+    audio_path is .opus (preferred) or .wav if Opus was never archived.
     Raises HTTPException 404 if nothing found.
     """
     safe_id = re.sub(r"[^\w\-]", "", recording_id)
 
+    def _audio_path(base: Path) -> Path:
+        """Prefer .opus, fall back to .wav if Opus not archived."""
+        opus = base.with_suffix(".opus")
+        wav = base.with_suffix(".wav")
+        if opus.exists():
+            return opus
+        if wav.exists():
+            return wav
+        return opus  # caller will check .exists()
+
     # Exact match first
     json_path = OUTPUT_DIR / f"{safe_id}.json"
     if json_path.exists():
-        return json_path, json_path.with_suffix(".opus")
+        return json_path, _audio_path(json_path.with_suffix(""))
 
     # Prefix fallback — match on timestamp + source (first 3 _ segments)
     # e.g. "2026-02-24_09-05-06_zoom" covers any topic variation
@@ -58,7 +69,7 @@ def resolve_recording(recording_id: str) -> tuple[Path, Path]:
         if candidates:
             # Pick closest stem length to what was requested
             best = min(candidates, key=lambda p: abs(len(p.stem) - len(safe_id)))
-            return best, best.with_suffix(".opus")
+            return best, _audio_path(best.with_suffix(""))
 
     raise HTTPException(status_code=404, detail=f"Recording not found: {recording_id}")
 
@@ -91,12 +102,16 @@ def make_summary(recording_id: str, data: dict) -> dict:
     """Lightweight summary for the list view — no transcript turns."""
     meeting = data.get("meeting", {})
     turns   = data.get("transcript", {}).get("turns", [])
+    # Derive duration from transcript when meeting times missing (e.g. repair.py)
+    duration_seconds = max(t["end"] for t in turns) if turns else None
     return {
         "id":           recording_id,
         "topic":        meeting.get("topic", recording_id),
         "source":       _infer_source(recording_id),
         "start_time":   meeting.get("start_time") or meeting.get("local_joined"),
+        "local_left":   meeting.get("local_left"),
         "duration_minutes": meeting.get("duration_minutes"),
+        "duration_seconds": duration_seconds,
         "participant_count": len(meeting.get("participants", [])),
         "participants": meeting.get("participants", []),
         "speaker_count": len(data.get("speakers", [])),
@@ -269,7 +284,7 @@ async def rediarize(recording_id: str, body: dict):
     """
     import asyncio
 
-    json_path, opus_path = resolve_recording(recording_id)
+    json_path, audio_path = resolve_recording(recording_id)
 
     def _parse_int(key, lo, hi):
         val = body.get(key)
@@ -295,12 +310,13 @@ async def rediarize(recording_id: str, body: dict):
     if min_speakers and max_speakers and min_speakers > max_speakers:
         raise HTTPException(status_code=422, detail="min_speakers must be ≤ max_speakers")
 
-    # We need the original audio — Opus archive exists, WAV was deleted.
-    # Decode Opus → WAV for reprocessing, then re-archive.
-    if not opus_path.exists():
+    # We need the original audio — .opus (preferred) or .wav if not yet archived.
+    if not audio_path.exists():
+        wav_path = json_path.with_suffix(".wav")
         raise HTTPException(
             status_code=409,
-            detail="Audio archive not found — cannot re-diarize without the original audio."
+            detail=f"Audio not found. Looked for {audio_path.name} and {wav_path.name} in {OUTPUT_DIR}. "
+            "Re-diarization needs the original .opus (after archiving) or .wav (if not yet archived)."
         )
 
     hf_token   = os.getenv("HF_TOKEN")
@@ -313,12 +329,12 @@ async def rediarize(recording_id: str, body: dict):
         import sys, subprocess, tempfile
         from pathlib import Path as P
 
-        # Decode Opus → temporary WAV
+        # Decode audio (Opus or WAV) → temporary WAV for processing
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp_wav = P(tmp.name)
 
         subprocess.run([
-            "/usr/local/bin/ffmpeg", "-i", str(opus_path),
+            "/usr/local/bin/ffmpeg", "-i", str(audio_path),
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
             str(tmp_wav), "-y", "-loglevel", "error",
         ], check=True)
@@ -373,7 +389,7 @@ async def split_recording(recording_id: str, body: dict):
     """
     import asyncio
 
-    json_path, opus_path = resolve_recording(recording_id)
+    json_path, audio_path = resolve_recording(recording_id)
 
     split_at = body.get("split_at")
     if split_at is None:
@@ -385,8 +401,8 @@ async def split_recording(recording_id: str, body: dict):
     if split_at <= 0:
         raise HTTPException(status_code=422, detail="split_at must be > 0")
 
-    if not opus_path.exists():
-        raise HTTPException(status_code=409, detail="Audio archive not found")
+    if not audio_path.exists():
+        raise HTTPException(status_code=409, detail="Audio not found — need .opus or .wav")
 
     def run_split():
         import subprocess, json as _json
@@ -400,19 +416,21 @@ async def split_recording(recording_id: str, body: dict):
         # ── Split audio ────────────────────────────────────────────────
         p1_opus = p1_base.with_suffix(".opus")
         p2_opus = p2_base.with_suffix(".opus")
+        # Use stream copy for Opus, encode for WAV input
+        copy_arg = ["-c", "copy"] if audio_path.suffix.lower() == ".opus" else ["-c:a", "libopus", "-b:a", "32k"]
 
         # Part 1: 0 → split_at
         subprocess.run([
-            "/usr/local/bin/ffmpeg", "-i", str(opus_path),
+            "/usr/local/bin/ffmpeg", "-i", str(audio_path),
             "-t", str(split_at),
-            "-c", "copy", str(p1_opus), "-y", "-loglevel", "error",
+            *copy_arg, str(p1_opus), "-y", "-loglevel", "error",
         ], check=True)
 
         # Part 2: split_at → end
         subprocess.run([
-            "/usr/local/bin/ffmpeg", "-i", str(opus_path),
+            "/usr/local/bin/ffmpeg", "-i", str(audio_path),
             "-ss", str(split_at),
-            "-c", "copy", str(p2_opus), "-y", "-loglevel", "error",
+            *copy_arg, str(p2_opus), "-y", "-loglevel", "error",
         ], check=True)
 
         # ── Split transcript ───────────────────────────────────────────
@@ -457,9 +475,9 @@ async def split_recording(recording_id: str, body: dict):
 
         # ── Rename original ────────────────────────────────────────────
         orig_json = orig_base.with_suffix(".json")
-        orig_opus = orig_base.with_suffix(".opus")
+        orig_audio = orig_base.with_suffix(audio_path.suffix)
         json_path.rename(orig_json)
-        opus_path.rename(orig_opus)
+        audio_path.rename(orig_audio)
 
         return {
             "part1_id": p1_base.name,

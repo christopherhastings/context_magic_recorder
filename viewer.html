@@ -9,26 +9,26 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
-body{background:#0f0e0c;color:#ede4d6;font-family:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column}
+body{background:#1a1816;color:#ede4d6;font-family:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column}
 ::-webkit-scrollbar{width:3px}
-::-webkit-scrollbar-thumb{background:#2a2520;border-radius:2px}
+::-webkit-scrollbar-thumb{background:#3a3530;border-radius:2px}
 button{cursor:pointer;font-family:inherit;border:none;outline:none}
 input,select{font-family:inherit;outline:none}
 
 /* ── Layout ──────────────────────────────────────────────────────── */
 #shell{flex:1;display:flex;overflow:hidden}
-#list-panel{width:320px;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;background:#0d0c0a}
+#list-panel{width:320px;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.08);display:flex;flex-direction:column;background:#1e1c1a}
 #detail-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
 
 /* ── List panel top ───────────────────────────────────────────────── */
-#list-top{padding:20px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0}
+#list-top{padding:20px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.1);flex-shrink:0}
 .wordmark{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.18em;color:#7a6e62;text-transform:uppercase;margin-bottom:16px}
 #search-wrap{position:relative}
-#search{width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:8px 32px 8px 14px;color:#c8bdb0;font-size:13px;transition:border-color 0.2s}
-#search:focus{border-color:rgba(203,139,74,0.5);background:rgba(255,255,255,0.06)}
-#search::placeholder{color:#5a4e44}
-#search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;color:#4a4038;font-size:11px;display:none;padding:2px}
-#list-count{font-size:10px;color:#6a5e52;font-family:'DM Mono',monospace;margin-top:10px}
+#search{width:100%;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.14);border-radius:8px;padding:8px 32px 8px 14px;color:#d8d0c4;font-size:13px;transition:border-color 0.2s}
+#search:focus{border-color:rgba(203,139,74,0.5);background:rgba(255,255,255,0.12)}
+#search::placeholder{color:#8a7e72}
+#search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;color:#8a7e72;font-size:11px;display:none;padding:2px}
+#list-count{font-size:10px;color:#8a7e72;font-family:'DM Mono',monospace;margin-top:10px}
 
 /* ── Recording list ───────────────────────────────────────────────── */
 #rec-list{flex:1;overflow-y:auto;padding:8px 0}
@@ -40,15 +40,15 @@ input,select{font-family:inherit;outline:none}
 .rec-item.active .rec-topic{color:#e8b878}
 .rec-pills{display:flex;gap:6px;flex-wrap:wrap}
 .pill{font-size:9px;padding:2px 7px;border-radius:20px;letter-spacing:0.04em;font-family:'DM Mono',monospace}
-.pill-src{background:rgba(255,255,255,0.05);color:#6a5f52}
-.pill-spk{background:rgba(203,139,74,0.1);color:#9a7040}
-.pill-match{background:rgba(100,180,120,0.12);color:#5a9068}
-.rec-empty{padding:40px 20px;text-align:center;color:#3a342c;font-size:13px;line-height:1.8}
+.pill-src{background:rgba(255,255,255,0.12);color:#9a8e82}
+.pill-spk{background:rgba(203,139,74,0.18);color:#b08850}
+.pill-match{background:rgba(100,180,120,0.2);color:#6aab6a}
+.rec-empty{padding:40px 20px;text-align:center;color:#7a6e62;font-size:13px;line-height:1.8}
 
 /* ── Detail: empty state ─────────────────────────────────────────── */
-#empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#3a342c;gap:12px}
-#empty-state .big{font-family:'Instrument Serif',Georgia,serif;font-size:28px;color:#2a2520}
-#empty-state .sub{font-size:12px;color:#3a342c;line-height:1.6;text-align:center;max-width:280px}
+#empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#6a5e52;gap:12px}
+#empty-state .big{font-family:'Instrument Serif',Georgia,serif;font-size:28px;color:#5a5248}
+#empty-state .sub{font-size:12px;color:#7a6e62;line-height:1.6;text-align:center;max-width:280px}
 
 /* ── Detail: header ─────────────────────────────────────────────── */
 #detail-header{padding:28px 36px 0;flex-shrink:0}
@@ -72,10 +72,10 @@ input,select{font-family:inherit;outline:none}
 .spk-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;opacity:0.9}
 
 /* ── Re-diarize controls ────────────────────────────────────────── */
-#redialog-bar{display:flex;align-items:center;gap:16px;padding:10px 36px;background:#0d0c0a;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;flex-wrap:wrap}
+#redialog-bar{display:flex;align-items:center;gap:16px;padding:10px 36px;background:#1e1c1a;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0;flex-wrap:wrap}
 .spk-field{display:flex;align-items:center;gap:7px}
 .spk-field label{font-size:10px;color:#8a7e72;font-family:'DM Mono',monospace;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap}
-.spk-input{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#ddd0c0;font-size:12px;padding:5px 8px;width:52px;font-family:'DM Mono',monospace;text-align:center}
+.spk-input{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.16);border-radius:6px;color:#ddd0c0;font-size:12px;padding:5px 8px;width:52px;font-family:'DM Mono',monospace;text-align:center}
 .spk-input:focus{border-color:rgba(203,139,74,0.4);outline:none}
 .spk-input.active-constraint{border-color:rgba(203,139,74,0.3);background:rgba(203,139,74,0.06)}
 .spk-divider{width:1px;height:20px;background:rgba(255,255,255,0.1)}
@@ -86,13 +86,13 @@ input,select{font-family:inherit;outline:none}
 #redialog-status{font-size:11px;color:#8a7e72;font-style:italic}
 
 /* ── Search bar ─────────────────────────────────────────────────── */
-#detail-search-bar{display:flex;align-items:center;gap:10px;padding:10px 36px;border-bottom:1px solid rgba(255,255,255,0.05);flex-shrink:0}
-#detail-search{flex:1;max-width:360px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:6px 12px;color:#c8bdb0;font-size:12px;transition:border-color 0.2s}
+#detail-search-bar{display:flex;align-items:center;gap:10px;padding:10px 36px;border-bottom:1px solid rgba(255,255,255,0.1);flex-shrink:0}
+#detail-search{flex:1;max-width:360px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.14);border-radius:6px;padding:6px 12px;color:#d8d0c4;font-size:12px;transition:border-color 0.2s}
 #detail-search:focus{border-color:rgba(203,139,74,0.4)}
-#detail-search::placeholder{color:#5a4e44}
+#detail-search::placeholder{color:#8a7e72}
 #match-info{font-size:11px;color:#8a7e72}
-.nav-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:#6a5f52;width:22px;height:22px;border-radius:5px;font-size:11px;transition:all 0.15s;display:flex;align-items:center;justify-content:center;cursor:pointer;}
-.nav-btn:hover{background:rgba(255,255,255,0.08);color:#c8bdb0}
+.nav-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.14);color:#9a8e82;width:22px;height:22px;border-radius:5px;font-size:11px;transition:all 0.15s;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.nav-btn:hover{background:rgba(255,255,255,0.16);color:#d8d0c4}
 
 /* ── Transcript turns ───────────────────────────────────────────── */
 #turns{flex:1;overflow-y:auto;padding:0 36px 60px}
@@ -108,14 +108,14 @@ input,select{font-family:inherit;outline:none}
 mark{background:rgba(203,139,74,0.22);color:#e8b878;border-radius:2px;padding:0 1px}
 
 /* ── Loading overlay ────────────────────────────────────────────── */
-#loading-overlay{display:none;position:fixed;inset:0;background:rgba(15,14,12,0.85);align-items:center;justify-content:center;z-index:100;flex-direction:column;gap:16px}
+#loading-overlay{display:none;position:fixed;inset:0;background:rgba(26,24,22,0.9);align-items:center;justify-content:center;z-index:100;flex-direction:column;gap:16px}
 #loading-overlay.show{display:flex}
 .spinner{width:32px;height:32px;border:2px solid rgba(203,139,74,0.15);border-top-color:#cb8b4a;border-radius:50%;animation:spin 0.8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.loading-msg{font-size:13px;color:#6a5f52}
+.loading-msg{font-size:13px;color:#8a7e72}
 
 /* misc */
-.dim{color:#4a4038;font-size:13px;padding:40px;text-align:center}
+.dim{color:#9a8e82;font-size:13px;padding:40px;text-align:center}
 
 /* ── Notes + Context buttons ────────────────────────────────────── */
 #context-actions{padding:12px 20px;border-top:1px solid rgba(255,255,255,0.06);flex-shrink:0}
@@ -129,8 +129,8 @@ mark{background:rgba(203,139,74,0.22);color:#e8b878;border-radius:2px;padding:0 
 #notes-status{font-size:11px;color:#8a7e72;font-style:italic}
 
 /* Split mode */
-#btn-split-mode{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#8a7e72;font-size:11px;padding:5px 12px;border-radius:6px;letter-spacing:0.04em;transition:all 0.2s;margin-left:8px}
-#btn-split-mode:hover{background:rgba(255,255,255,0.08);color:#c8bdb0}
+#btn-split-mode{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.14);color:#9a8e82;font-size:11px;padding:5px 12px;border-radius:6px;letter-spacing:0.04em;transition:all 0.2s;margin-left:8px}
+#btn-split-mode:hover{background:rgba(255,255,255,0.16);color:#d8d0c4}
 #btn-split-mode.active{background:rgba(180,120,60,0.15);border-color:rgba(180,120,60,0.4);color:#e0a060}
 .split-banner{background:rgba(180,120,60,0.08);border-bottom:1px solid rgba(180,120,60,0.2);padding:8px 36px;font-size:11px;color:#b07840;font-family:'DM Mono',monospace;flex-shrink:0;display:none}
 .split-banner.show{display:block}
@@ -145,9 +145,9 @@ body.split-mode #turns{padding-left:96px}
 body.split-mode .turn-group{border-bottom:1px solid rgba(180,120,60,0.08)}
 
 /* Split confirm dialog */
-#split-confirm{display:none;position:fixed;inset:0;background:rgba(10,9,8,0.88);z-index:200;align-items:center;justify-content:center}
+#split-confirm{display:none;position:fixed;inset:0;background:rgba(20,18,16,0.9);z-index:200;align-items:center;justify-content:center}
 #split-confirm.show{display:flex}
-.split-dialog{background:#1a1610;border:1px solid rgba(180,120,60,0.3);border-radius:10px;padding:28px 32px;max-width:400px;width:90%}
+.split-dialog{background:#242018;border:1px solid rgba(180,120,60,0.35);border-radius:10px;padding:28px 32px;max-width:400px;width:90%}
 .split-dialog h3{font-family:'Instrument Serif',Georgia,serif;font-size:20px;color:#e8d8c0;font-weight:400;margin-bottom:8px}
 .split-dialog p{font-size:13px;color:#8a7e72;line-height:1.6;margin-bottom:24px}
 .split-dialog .time{font-family:'DM Mono',monospace;font-size:22px;color:#e0a060;display:block;margin:12px 0}
@@ -164,7 +164,7 @@ body.split-mode .turn-group{border-bottom:1px solid rgba(180,120,60,0.08)}
   <div class="split-dialog">
     <h3>Split recording</h3>
     <p>Create two recordings — everything before and after:<span class="time" id="split-time-display"></span></p>
-    <p style="font-size:11px;color:#5a4e44">The original will be kept with an _original suffix.</p>
+    <p style="font-size:11px;color:#7a6e62">The original will be kept with an _original suffix.</p>
     <div class="split-actions">
       <button class="btn-cancel-split" id="btn-cancel-split">Cancel</button>
       <button class="btn-confirm-split" id="btn-confirm-split">⟂ Split here</button>
@@ -214,7 +214,7 @@ let matchIdx=[],hlPos=0,activeSpeaker=null;
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function fmtTime(s){const m=Math.floor(s/60);return m+':'+Math.floor(s%60).toString().padStart(2,'0')}
 function fmtDate(iso){if(!iso)return'—';const d=new Date(iso);return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})}
-function fmtDur(mins,j,l){let m=mins;if(!m&&j&&l)m=Math.round((new Date(l)-new Date(j))/60000);if(!m)return null;return m<60?m+'m':Math.floor(m/60)+'h '+(m%60)+'m'}
+function fmtDur(mins,j,l,secs){let m=mins;if(!m&&j&&l)m=Math.round((new Date(l)-new Date(j))/60000);if(!m&&secs)m=Math.round(secs/60);if(!m)return null;return m<60?m+'m':Math.floor(m/60)+'h '+(m%60)+'m'}
 function srcLabel(s){return{zoom:'Zoom',google_meet_chrome:'Meet · Chrome',google_meet_safari:'Meet · Safari'}[s]||s||''}
 function initials(n){return n.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
 function colorFor(speakers,name){const i=speakers.indexOf(name);return i>=0?COLORS[i%COLORS.length]:'#6a5f52'}
@@ -234,7 +234,7 @@ function renderList(){
   const turns=activeData?activeData.transcript?.turns||[]:[];
   document.getElementById('rec-list').innerHTML=filtered.map(r=>{
     const matches=q?turns.filter(t=>t.text.toLowerCase().includes(q)&&r.id===activeId).length:0;
-    const dur=fmtDur(r.duration_minutes,r.start_time,r.processed_at);
+    const dur=fmtDur(r.duration_minutes,r.start_time,r.local_left,r.duration_seconds);
     const dateStr=r.start_time?new Date(r.start_time).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
     return '<div class="rec-item'+(r.id===activeId?' active':'')+'" data-id="'+esc(r.id)+'">'+
       '<div class="rec-date">'+esc(dateStr)+(dur?' · '+esc(dur):'')+'</div>'+
@@ -272,7 +272,8 @@ function renderDetail(){
   matchIdx=q?visibleTurns.map((t,i)=>t.text.toLowerCase().includes(q)?i:-1).filter(i=>i!==-1):[];
   if(hlPos>=matchIdx.length)hlPos=0;
 
-  const dur=fmtDur(meeting.duration_minutes,meeting.start_time||meeting.local_joined,meeting.local_left);
+  const lastEnd=turns.length?Math.max(...turns.map(t=>t.end)):null;
+  const dur=fmtDur(meeting.duration_minutes,meeting.start_time||meeting.local_joined,meeting.local_left,lastEnd);
   const numSpk=allSpeakers.length||2;
 
   // Speaker tab bar
@@ -318,9 +319,9 @@ function renderDetail(){
       '<button class="nav-btn" id="nav-dn">↓</button>':
       (q?'<span id="match-info" style="color:#5a3a2a">no matches</span>':'')
     )+
-    '<div style="display:flex; align-items:center; gap:8px; margin-left:auto; border-left:1px solid rgba(255,255,255,0.1); padding-left:16px;">'+
+    '<div style="display:flex; align-items:center; gap:8px; margin-left:auto; border-left:1px solid rgba(255,255,255,0.18); padding-left:16px;">'+
       '<span style="font-size:11px; color:#8a7e72;">Jump to (s):</span>'+
-      '<input id="jump-time-input" type="number" step="0.001" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:6px; padding:4px 8px; color:#c8bdb0; font-size:11px; width:70px;" placeholder="1901.894">'+
+      '<input id="jump-time-input" type="number" step="0.001" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.14); border-radius:6px; padding:4px 8px; color:#d8d0c4; font-size:11px; width:70px;" placeholder="1901.894">'+
       '<button class="nav-btn" id="btn-jump-split" style="width:auto; padding:0 8px;">Split</button>'+
     '</div>'+
   '</div>';
@@ -533,7 +534,7 @@ async function loadRecording(id){
   activeId=id; activeData=null; activeSpeaker=null; hlPos=0; detailQ='';
   renderList();
   const dp=document.getElementById('detail-panel');
-  dp.innerHTML='<div id="empty-state"><div class="big" style="font-size:18px;color:#3a342c">Loading…</div></div>';
+    dp.innerHTML='<div id="empty-state"><div class="big" style="font-size:18px;color:#6a5e52">Loading…</div></div>';
   try{
     const res=await fetch(API+'/api/recordings/'+id);
     if(!res.ok)throw new Error('HTTP '+res.status);
@@ -546,21 +547,28 @@ async function loadRecording(id){
     dp.innerHTML='<div id="empty-state"><div class="sub" style="color:#8a4a3a">Failed to load:<br>'+esc(e.message)+'</div></div>';
   }
 }
-
 async function loadList(){
-  try{
-    const res=await fetch(API+'/api/recordings');
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const data=await res.json();
-    allRecs=data.recordings||[];
+  try {
+    const res = await fetch(API + '/api/recordings');
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    
+    allRecs = data.recordings || [];
     renderList();
-    if(allRecs.length>0)loadRecording(allRecs[0].id);
-    else{
-      document.getElementById('rec-list').innerHTML='<div class="rec-empty">No recordings yet.<br><br>Start a Zoom or Meet call.</div>';
+
+    if (allRecs.length > 0) {
+      // Only auto-load the first recording if the user hasn't picked one yet
+      if (!activeId) {
+        loadRecording(allRecs[0].id);
+      }
+    } else {
+      document.getElementById('rec-list').innerHTML = 
+        '<div class="rec-empty">No recordings yet.<br><br>Start a Zoom or Meet call.</div>';
     }
-  }catch(e){
-    document.getElementById('rec-list').innerHTML='<div class="rec-empty" style="color:#cb7040">Cannot reach API server.<br><br>Is api_server.py running?</div>';
-    document.getElementById('list-count').textContent='—';
+  } catch(e) {
+    document.getElementById('rec-list').innerHTML = 
+      '<div class="rec-empty" style="color:#cb7040">Cannot reach API server.<br><br>Is api_server.py running?</div>';
+    document.getElementById('list-count').textContent = '—';
   }
 }
 
@@ -675,6 +683,29 @@ document.getElementById('btn-confirm-split').addEventListener('click', async () 
     pendingSplitAt = null;
   }
 });
+// ── Auto-Refresh Logic ───────────────────────────────────────────────────────
+
+// This function refreshes the meeting list without resetting your current view
+async function autoRefreshList() {
+  try {
+    const res = await fetch(API + '/api/recordings');
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    
+    // Update the master list
+    allRecs = data.recordings || [];
+    
+    // Redraw the sidebar
+    renderList();
+    
+    console.log("List auto-refreshed: " + new Date().toLocaleTimeString());
+  } catch (e) {
+    console.log("Auto-refresh failed (server might be down)");
+  }
+}
+
+// Check for new meetings every 10 seconds
+setInterval(autoRefreshList, 10000);
 </script>
 </body>
 </html>

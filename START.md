@@ -78,6 +78,18 @@ To get your HuggingFace token:
 2. Accept pyannote terms at: huggingface.co/pyannote/speaker-diarization-3.1
 3. Paste token into `.env` as `HF_TOKEN=hf_...`
 
+**Daemon logging** (optional `.env`):
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `LOG_LEVEL` | `INFO` | `DEBUG` for more detail (all loggers). |
+| `LOG_FILE` | `/tmp/recorder_daemon.log` | Main log path; parent dirs are created if needed. |
+| `LOG_MAX_BYTES` | `0` | If &gt; `0`, rotate logs at this size (bytes), e.g. `5242880` (5 MiB). |
+| `LOG_BACKUP_COUNT` | `5` | Kept rotated files when `LOG_MAX_BYTES` is set. |
+| `ZOOM_DETECT_DEBUG` | off | `1` / `true` → DEBUG logs every Zoom poll + window titles (noisy). |
+
+Follow with: `tail -f /tmp/recorder_daemon.log` (or your `LOG_FILE`).
+
 ### 5. macOS permissions
 
 The daemon will check these on first launch and open the right

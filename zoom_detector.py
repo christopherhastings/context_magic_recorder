@@ -16,9 +16,12 @@ stopped working on macOS Sonoma/Sequoia — audio device handles are
 no longer visible in process file descriptors.
 
 Requires Accessibility permission for osascript to read window titles.
+
+Debug: set ZOOM_DETECT_DEBUG=1 in .env (recorder_daemon configures this logger).
 """
 
 import logging
+import os
 import subprocess
 from dataclasses import dataclass
 
@@ -58,6 +61,7 @@ class ZoomDetector:
         self._last_topic = "Zoom Meeting"
 
     def poll(self) -> ZoomCallInfo:
+        prev_in_call = self._consecutive_hits >= self._debounce
         detected, topic = self._check_zoom_windows()
 
         if detected:
@@ -67,6 +71,27 @@ class ZoomDetector:
             self._consecutive_hits = 0
 
         in_call = self._consecutive_hits >= self._debounce
+
+        if in_call != prev_in_call:
+            logger.info(
+                "[zoom-detect] in_call %s → %s | raw=%s hits=%d/%d topic=%r",
+                prev_in_call,
+                in_call,
+                detected,
+                self._consecutive_hits,
+                self._debounce,
+                (self._last_topic if in_call else topic or "")[:100],
+            )
+        elif logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "[zoom-detect] raw=%s hits=%d/%d in_call=%s topic=%r",
+                detected,
+                self._consecutive_hits,
+                self._debounce,
+                in_call,
+                (topic or "")[:100],
+            )
+
         return ZoomCallInfo(
             in_call=in_call,
             topic=self._last_topic if in_call else "Zoom Meeting",
@@ -87,7 +112,12 @@ class ZoomDetector:
 
         # Read all window titles
         titles = self._get_all_window_titles()
+        if logger.isEnabledFor(logging.DEBUG):
+            preview = [t[:80] for t in titles[:12]]
+            logger.debug("[zoom-detect] window titles (%d): %s", len(titles), preview)
+
         if not titles:
+            logger.debug("[zoom-detect] no window titles from zoom.us")
             return False, ""
 
         # Find a title that looks like an active meeting
@@ -135,7 +165,15 @@ class ZoomDetector:
                 ["osascript", "-e", script],
                 capture_output=True, text=True, timeout=5,
             )
-            if result.returncode != 0 or not result.stdout.strip():
+            if result.returncode != 0:
+                err = (result.stderr or "").strip()[:300]
+                logger.warning(
+                    "[zoom-detect] osascript exit %s: %s",
+                    result.returncode,
+                    err or "(no stderr)",
+                )
+                return []
+            if not result.stdout.strip():
                 return []
 
             return [t.strip() for t in result.stdout.strip().splitlines() if t.strip()]

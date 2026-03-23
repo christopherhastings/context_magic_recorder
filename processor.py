@@ -55,7 +55,7 @@ def is_stereo(audio_path: Path) -> bool:
     """Return True if the file has 2 channels."""
     try:
         result = subprocess.run(
-            ["/usr/local/bin/ffprobe", "-v", "error", "-select_streams", "a:0",
+            ["ffprobe", "-v", "error", "-select_streams", "a:0",
              "-show_entries", "stream=channels",
              "-of", "default=noprint_wrappers=1:nokey=1",
              str(audio_path)],
@@ -78,13 +78,13 @@ def split_stereo(audio_path: Path) -> tuple[Path, Path]:
     right = Path(f"{base}_right.wav")
 
     subprocess.run([
-        "/usr/local/bin/ffmpeg", "-i", str(audio_path),
+        "ffmpeg", "-i", str(audio_path),
         "-af", "pan=mono|c0=c0",
         str(left), "-y", "-loglevel", "error",
     ], check=True)
 
     subprocess.run([
-        "/usr/local/bin/ffmpeg", "-i", str(audio_path),
+        "ffmpeg", "-i", str(audio_path),
         "-af", "pan=mono|c0=c1",
         str(right), "-y", "-loglevel", "error",
     ], check=True)
@@ -180,10 +180,11 @@ def words_to_turns_with_diarization(words: list[Word],
     """Assign each word to a speaker via diarization, collapse into turns."""
 
     def speaker_at(t: float) -> str:
+        # Find the diarization segment that contains t
         for seg in diarization:
             if seg["start"] <= t <= seg["end"]:
                 return seg["speaker"]
-        # Fallback: find the closest segment if the word is in a tiny gap
+        # t falls in a gap — snap to the nearest segment boundary
         best = min(diarization, key=lambda s: min(abs(t - s["start"]), abs(t - s["end"])), default=None)
         return best["speaker"] if best else "UNKNOWN"
 
@@ -382,31 +383,34 @@ def process_recording(
     all_diarization = []
 
     if is_stereo(audio_path):
+        logger.info("Stereo audio — channel-based speaker separation")
         left_path, right_path = split_stereo(audio_path)
 
-        # 1. Transcribe the remote channel (Left)
+        # Remote participants: transcribe + diarize with auto speaker detection
+        logger.info("Transcribing remote channel (left)...")
         left_words = transcribe(left_path, model_size=whisper_model)
 
-        # 2. Diarize the remote channel ONLY (Them)
-        # Calculate speaker counts: total participants minus 1 (you)
-        p_count = len(meeting_meta.get("participants", []))
-        remote_max = max(1, (max_speakers or p_count or 8) - 1)
-
+        # min=1 (could be one remote speaker), max=num_speakers-1 (you are separate)
+        remote_min = max(1, (min_speakers or 1) - 1) if (min_speakers or 1) > 1 else 1
+        remote_max = max(1, (max_speakers or 8) - 1)
+        logger.info(f"Diarizing remote channel (min={remote_min} max={remote_max} remote speakers)...")
         left_diarization = diarize(
             left_path, hf_token=hf_token,
-            min_speakers=1,
-            max_speakers=remote_max
+            min_speakers=remote_min,
+            max_speakers=remote_max,
         )
         all_diarization = left_diarization
-
-        # 3. Transcribe your channel (Right) as "You"
-        right_words = transcribe(right_path, model_size=whisper_model)
-
-        # 4. Convert to turns
         remote_turns = words_to_turns_with_diarization(left_words, left_diarization)
-        local_turns = words_to_turns_single_speaker(right_words, speaker="You")
 
-        # 5. Interleave them
+        # You: transcribe only
+        logger.info("Transcribing local channel (right — 'You')...")
+        right_words  = transcribe(right_path, model_size=whisper_model)
+        local_turns  = words_to_turns_single_speaker(right_words, speaker="You")
+
+        # TODO: re-enable after diarization testing
+        # left_path.unlink(missing_ok=True)
+        # right_path.unlink(missing_ok=True)
+
         turns = merge_turns(remote_turns, local_turns)
 
     else:
