@@ -3,8 +3,20 @@
 # Configuration
 USER_NAME=$(whoami)
 PROJECT_DIR=$(pwd)
-PYTHON_PATH="$PROJECT_DIR/venv/bin/python"
+# Define PYTHON_PATH using realpath to ensure it's absolute and resolved
+PYTHON_PATH="$(realpath "$PROJECT_DIR")/venv/bin/python"
 AGENT_DIR="$HOME/Library/LaunchAgents"
+
+# Ensure venv is created and dependencies are installed
+echo "Ensuring Python virtual environment and dependencies are set up..."
+if [ ! -d "$PROJECT_DIR/venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv "$PROJECT_DIR/venv"
+fi
+echo "Installing/updating Python dependencies in venv..."
+# Use the resolved PYTHON_PATH
+"$PYTHON_PATH" -m pip install --upgrade pip
+"$PYTHON_PATH" -m pip install -r "$PROJECT_DIR/requirements.txt"
 
 # List of services to create
 SERVICES=("daemon" "api" "menubar")
@@ -24,17 +36,24 @@ for i in "${!SERVICES[@]}"; do
 <dict>
     <key>Label</key>
     <string>com.recorder.$SERVICE</string>
+$(if [ "$SERVICE" == "daemon" ]; then
+    echo "    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>"
+fi)
     <key>ProgramArguments</key>
     <array>
-        <string>$PYTHON_PATH</string>
-        <string>$PROJECT_DIR/$SCRIPT</string>
+        <string>${PYTHON_PATH}</string>
+        <string>${PROJECT_DIR}/${SCRIPT}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>WorkingDirectory</key>
-    <string>$PROJECT_DIR</string>
+    <string>${PROJECT_DIR}</string>
     <key>LimitLoadToSessionType</key>
     <string>Aqua</string>
     <key>StandardOutPath</key>
@@ -47,6 +66,11 @@ EOF
 
     # Unload if already exists, then load
     launchctl unload "$PLIST" 2>/dev/null
+    # Kill the process before loading the new plist
+    if pgrep -f "$SCRIPT" > /dev/null; then
+        echo "Killing existing $SCRIPT process..."
+        pkill -f "$SCRIPT"
+    fi
     launchctl load "$PLIST"
 done
 

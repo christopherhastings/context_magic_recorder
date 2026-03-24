@@ -32,6 +32,7 @@ _NON_CALL_TITLES = {
     "", "zoom", "zoom.us", "zoom workplace",
     "zoom workplace - free plan", "zoom workplace - licensed",
     "zoom - free account", "zoom - licensed",
+    "menu window",
 }
 
 # Substrings in a title that indicate a non-meeting window
@@ -44,6 +45,12 @@ _NON_CALL_SUBSTRINGS = [
     "sign in",
     "sign up",
     "waiting room",
+    "menu window",
+    "audio settings",
+    "video settings",
+    "chat with",
+    "share screen",
+    "invite people",
 ]
 
 

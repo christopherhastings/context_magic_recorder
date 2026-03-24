@@ -68,6 +68,11 @@ STATE_RECORD  = {"title": "⏺",  "color": "recording"}
 STATE_ERROR   = {"title": "⚠",  "color": "error"}
 
 
+import requests
+
+API_BASE_URL = "http://localhost:8766/api"
+
+
 class RecorderMenuBar(rumps.App):
     def __init__(self):
         super().__init__(
@@ -77,32 +82,42 @@ class RecorderMenuBar(rumps.App):
         )
 
         self._last_state  = None
-        self._recording_since = None
+        self._last_source = None
 
         # Menu items
         self._status_item    = rumps.MenuItem("Status: Idle")
         self._meeting_item   = rumps.MenuItem("")
         self._duration_item  = rumps.MenuItem("")
-        self._sep1           = rumps.separator
+        self._sep_manual     = rumps.separator
+        self._start_rec_item = rumps.MenuItem("Start Manual Recording", callback=self._start_recording)
+        self._split_rec_item = rumps.MenuItem("Split Recording Segment", callback=self._split_recording)
+        self._stop_rec_item  = rumps.MenuItem("Stop Manual Recording", callback=self._stop_recording)
+        self._sep_actions    = rumps.separator
         self._open_folder    = rumps.MenuItem("Open Recordings Folder", callback=self._open_recordings)
         self._open_viewer    = rumps.MenuItem("Open Transcript Viewer", callback=self._open_viewer)
-        self._sep2           = rumps.separator
+        self._sep_quit       = rumps.separator
         self._quit_item      = rumps.MenuItem("Quit Recorder", callback=self._quit)
 
         self.menu = [
             self._status_item,
             self._meeting_item,
             self._duration_item,
-            rumps.separator,
+            self._sep_manual,
+            self._start_rec_item,
+            self._split_rec_item,
+            self._stop_rec_item,
+            self._sep_actions,
             self._open_folder,
             self._open_viewer,
-            rumps.separator,
+            self._sep_quit,
             self._quit_item,
         ]
 
-        # Hide meeting + duration items initially
+        # Hide items initially
         self._meeting_item.hide()
         self._duration_item.hide()
+        self._split_rec_item.hide()
+        self._stop_rec_item.hide()
 
     @rumps.timer(POLL_SECS)
     def _poll_status(self, _):
@@ -135,46 +150,51 @@ class RecorderMenuBar(rumps.App):
             self._status_item.title = "Daemon may have crashed"
             self._meeting_item.hide()
             self._duration_item.hide()
+            self._show_manual_controls(is_recording=False)
             return
+
+        # Show/hide manual controls based on state
+        is_manual = source == "zoom_manual"
+        self._show_manual_controls(is_recording=(state == "recording"), is_manual_source=is_manual)
 
         if state == "idle":
             self.title = "⬤"
             self._status_item.title = "Status: Ready"
             self._meeting_item.hide()
             self._duration_item.hide()
-            self._last_state = state
 
         elif state == "recording":
-            # Always compute elapsed so title stays live every 2 seconds
             elapsed_str = ""
             if since:
                 try:
                     started = datetime.fromisoformat(since)
                     elapsed = datetime.now().astimezone() - started.astimezone()
-                    mins    = int(elapsed.total_seconds() // 60)
-                    secs    = int(elapsed.total_seconds() % 60)
+                    mins, secs = divmod(int(elapsed.total_seconds()), 60)
                     elapsed_str = f" {mins}:{secs:02d}"
                     self._duration_item.title = f"  Duration: {mins}:{secs:02d}"
                     self._duration_item.show()
                 except Exception:
                     self._duration_item.hide()
 
-            # Title shows symbol + elapsed so it's always clear something is happening
             self.title = f"⏺{elapsed_str}"
-            source_label = {"zoom": "Zoom", "chrome_meet": "Meet (Chrome)",
-                            "safari_meet": "Meet (Safari)"}.get(source, source)
-            self._status_item.title = f"Recording — {source_label}"
+            source_labels = {
+                "zoom": "Zoom (auto)",
+                "zoom_manual": "Zoom (manual)",
+                "chrome_meet": "Meet (Chrome)",
+                "safari_meet": "Meet (Safari)",
+            }
+            self._status_item.title = f"Recording: {source_labels.get(source, source)}"
             if meeting:
                 self._meeting_item.title = f"  {meeting}"
                 self._meeting_item.show()
-            self._last_state = state
+            else:
+                self._meeting_item.hide()
 
         elif state == "processing":
             self.title = "◌"
             self._status_item.title = f"Processing: {meeting}"
             self._meeting_item.hide()
             self._duration_item.hide()
-            self._last_state = state
 
         elif state == "error":
             if self._last_state != "error":
@@ -183,7 +203,6 @@ class RecorderMenuBar(rumps.App):
             self._status_item.title = f"Error: {error or 'Unknown error'}"
             self._meeting_item.hide()
             self._duration_item.hide()
-            self._last_state = "error"
 
         elif state == "selector_broken":
             self.title = "⚠"
@@ -193,40 +212,83 @@ class RecorderMenuBar(rumps.App):
                     "Google Meet detector needs attention",
                     "The Meet DOM selectors may have changed.",
                 )
-            self._last_state = "selector_broken"
 
         else:
-            # State file missing or unknown — daemon not running
             if file_age > 60 or state == "unknown":
                 self.title = "⬤"
                 self._status_item.title = "Daemon not running"
             self._meeting_item.hide()
             self._duration_item.hide()
 
+        self._last_state = state
+        self._last_source = source
+
+    def _show_manual_controls(self, is_recording: bool, is_manual_source: bool):
+        if is_recording:
+            # When any recording is happening, hide "Start"
+            self._start_rec_item.hide()
+            # Only show Split/Stop for *manual* recordings
+            if is_manual_source:
+                self._split_rec_item.show()
+                self._stop_rec_item.show()
+            else:
+                self._split_rec_item.hide()
+                self._stop_rec_item.hide()
+        else:
+            # When idle, can always start a new manual recording
+            self._start_rec_item.show()
+            self._split_rec_item.hide()
+            self._stop_rec_item.hide()
+
     def _notify(self, title: str, message: str):
-        rumps.notification(
-            title=title,
-            subtitle="",
-            message=message,
-            sound=False,
-        )
+        rumps.notification(title=title, subtitle="", message=message, sound=False)
 
     def _notify_error(self, message: str):
-        rumps.notification(
-            title="Recorder Error",
-            subtitle="",
-            message=message,
-            sound=True,
-        )
+        rumps.notification(title="Recorder Error", subtitle="", message=message, sound=True)
+
+    def _start_recording(self, _):
+        try:
+            # Ask for a topic
+            resp = rumps.Window(
+                "Start Recording",
+                "Enter a topic for this recording:",
+                default_text="My Meeting",
+                ok="Start",
+                cancel=True,
+            ).run()
+            if resp.clicked:
+                requests.post(f"{API_BASE_URL}/actions/start", json={"topic": resp.text}, timeout=5)
+                self._notify("Recording starting...", resp.text)
+        except requests.RequestException as e:
+            self._notify_error(f"Failed to start: {e}")
+
+    def _stop_recording(self, _):
+        try:
+            requests.post(f"{API_BASE_URL}/actions/stop", timeout=5)
+            self._notify("Recording stopping...", "")
+        except requests.RequestException as e:
+            self._notify_error(f"Failed to stop: {e}")
+
+    def _split_recording(self, _):
+        try:
+            resp = rumps.Window(
+                "Split Recording",
+                "Enter a topic for the NEW segment:",
+                default_text="New Segment",
+                ok="Split",
+                cancel=True,
+            ).run()
+            if resp.clicked:
+                requests.post(f"{API_BASE_URL}/actions/split", json={"topic": resp.text}, timeout=5)
+                self._notify("Recording splitting...", f"New segment: {resp.text}")
+        except requests.RequestException as e:
+            self._notify_error(f"Failed to split: {e}")
 
     def _open_recordings(self, _):
-        recordings_dir = os.path.expanduser(
-            os.getenv("OUTPUT_DIR", "~/Recordings")
-        )
+        recordings_dir = os.path.expanduser(os.getenv("OUTPUT_DIR", "~/Recordings"))
         subprocess.run(["open", recordings_dir])
 
     def _open_viewer(self, _):
-        # Opens the transcript viewer in the default browser
         subprocess.run(["open", "http://localhost:8766"])
 
     def _quit(self, _):

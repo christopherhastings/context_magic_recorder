@@ -243,9 +243,52 @@ def status():
     return {"state": "unknown"}
 
 
+import websockets
+import asyncio
+
+WS_PORT = int(os.getenv("WS_PORT", "8765"))
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "output_dir": str(OUTPUT_DIR), "exists": OUTPUT_DIR.exists()}
+
+
+# ── Manual Recording Actions ───────────────────────────────────────────────────
+
+async def _send_ws_command(command: dict):
+    uri = f"ws://localhost:{WS_PORT}"
+    try:
+        async with websockets.connect(uri) as websocket:
+            await websocket.send(json.dumps(command))
+    except (ConnectionRefusedError, asyncio.TimeoutError, websockets.exceptions.ConnectionClosed) as e:
+        raise HTTPException(status_code=503, detail=f"Could not connect to recorder daemon: {e}")
+
+
+@app.post("/api/actions/start")
+async def start_manual_recording(body: dict = None):
+    """Start a new manual recording session."""
+    body = body or {}
+    topic = body.get("topic", "Manual Recording")
+    await _send_ws_command({"command": "start_manual_recording", "topic": topic})
+    return {"ok": True, "message": "Recording started"}
+
+
+@app.post("/api/actions/stop")
+async def stop_manual_recording():
+    """Stop the current manual recording session."""
+    await _send_ws_command({"command": "stop_manual_recording"})
+    return {"ok": True, "message": "Recording stopped"}
+
+
+@app.post("/api/actions/split")
+async def split_manual_recording(body: dict = None):
+    """Splits the current manual recording, creating a new segment."""
+    body = body or {}
+    topic = body.get("topic", "New Segment")
+    await _send_ws_command({"command": "split_manual_recording", "topic": topic})
+    return {"ok": True, "message": "Recording split"}
+
 
 
 

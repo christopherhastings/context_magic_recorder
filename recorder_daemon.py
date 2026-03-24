@@ -198,8 +198,9 @@ class RecordingSession:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         ts      = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         raw     = meta.get("topic", source)
-        # Strip filesystem-unsafe chars — / is critical, it creates phantom subdirectories
-        topic   = re.sub(r'[/\\\\:*?"<>|]', '-', raw).replace(" ", "_").strip("-_")[:40]
+        # Strip filesystem-unsafe and shell-unsafe chars from topic for the filename.
+        # Apostrophes and backticks are especially dangerous — they break ffmpeg args.
+        topic   = re.sub(r'''[/\\:*?"<>|'`\[\](){}#&;!$~]''', '', raw).replace(" ", "_").strip("-_")[:40]
         src_tag = {"zoom": "zoom", "chrome_meet": "meet-chrome", "safari_meet": "meet-safari"}[source]
         ext     = ".wav" if self.capture_mode == "ffmpeg" else ".webm"
         self.audio_path = OUTPUT_DIR / f"{ts}_{src_tag}_{topic}{ext}"
@@ -208,7 +209,10 @@ class RecordingSession:
         self._stream_file = None
         self._bytes_recv  = 0
 
-        # Only Safari Meet needs system-level audio routing
+        # Only Safari Meet needs system-level audio routing.
+        # Zoom/manual recordings rely on the system already being set to
+        # a Multi-Output Device (e.g. Magic_Context) that includes BlackHole.
+        # Activating the router for Zoom disrupts the audio path and kills ffmpeg.
         self._router = get_router() if source == "safari_meet" else None
 
     def start_ffmpeg(self):
@@ -220,19 +224,62 @@ class RecordingSession:
                     "other apps playing audio may appear in this recording."
                 )
 
-        mic = detect_mic_device()
         ff = get_ffmpeg_binary()
-        cmd = [
-            ff,
-            "-f", "avfoundation", "-i", f":{BLACKHOLE_DEVICE}",  # Input 0
-            "-f", "avfoundation", "-i", f":{mic}",              # Input 1
-            "-filter_complex", "[0:a][1:a]join=inputs=2:channel_layout=stereo[a]",
-            "-map", "[a]",
-            "-ar", "16000", "-ac", "2", "-c:a", "pcm_s16le",
-            str(self.audio_path), "-y", "-loglevel", "error",
-        ]
-        self._ffmpeg_proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
-        logger.info(f"[{self.source}] ffmpeg ({ff}) → {self.audio_path.name}")
+
+        if self.source == "zoom":
+            mic_device = detect_mic_device()
+            # Stereo: L=BlackHole (remote participants), R=mic (your voice)
+            # aformat forces each input to mono before merge; pan assigns channels explicitly
+            cmd = [
+                ff,
+                "-f", "avfoundation",
+                "-i", f":{BLACKHOLE_DEVICE}",   # Input 0: remote audio
+                "-f", "avfoundation",
+                "-i", f":{mic_device}",          # Input 1: local mic
+                "-filter_complex",
+                "[0:a]aformat=channel_layouts=mono[left];"
+                "[1:a]aformat=channel_layouts=mono[right];"
+                "[left][right]amerge=inputs=2,pan=stereo|c0<c0|c1<c1[out]",
+                "-map", "[out]",
+                "-ar", "16000", "-ac", "2", "-c:a", "pcm_s16le",
+                str(self.audio_path), "-y", "-loglevel", "error",
+            ]
+            logger.info(f"[{self.source}] stereo capture: L={BLACKHOLE_DEVICE} R={mic_device}")
+        else:
+            # Safari Meet / Chrome Meet fallback: mono from BlackHole only
+            cmd = [
+                ff,
+                "-f", "avfoundation",
+                "-i", f":{BLACKHOLE_DEVICE}",
+                "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+                str(self.audio_path), "-y", "-loglevel", "error",
+            ]
+
+        # CRITICAL: Do NOT use stdout=PIPE or stderr=PIPE here.
+        # ffmpeg runs for the entire meeting — piped buffers fill up (~64KB)
+        # and ffmpeg blocks, deadlocking the recording. Send stderr to the
+        # log file instead so we can still debug failures after the fact.
+        ffmpeg_log = Path("/tmp/recorder_ffmpeg.log")
+        self._ffmpeg_log_fh = open(ffmpeg_log, "a")
+        self._ffmpeg_log_fh.write(f"\n--- {datetime.now().isoformat()} | {self.audio_path.name} ---\n")
+        self._ffmpeg_log_fh.write(f"cmd: {' '.join(cmd)}\n")
+        self._ffmpeg_log_fh.flush()
+        self._ffmpeg_proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stderr=self._ffmpeg_log_fh,
+        )
+        logger.info(f"[{self.source}] ffmpeg ({ff}) → {self.audio_path.name}  (stderr → {ffmpeg_log})")
+
+        # Give ffmpeg a moment to start, then verify it's still alive.
+        # If it died on launch (bad device, permission error, etc.) we catch it
+        # here instead of discovering a missing WAV file 30 minutes later.
+        time.sleep(0.5)
+        if self._ffmpeg_proc.poll() is not None:
+            self._ffmpeg_log_fh.flush()
+            logger.error(
+                f"[{self.source}] ffmpeg died on startup! exit code: {self._ffmpeg_proc.returncode} "
+                f"— check /tmp/recorder_ffmpeg.log"
+            )
+            self._ffmpeg_proc = None
 
     def stop_ffmpeg(self):
         if not self._ffmpeg_proc:
@@ -240,11 +287,18 @@ class RecordingSession:
         try:
             self._ffmpeg_proc.stdin.write(b"q")
             self._ffmpeg_proc.stdin.flush()
-            self._ffmpeg_proc.wait(timeout=10)
-        except Exception:
+            return_code = self._ffmpeg_proc.wait(timeout=10)
+            if return_code != 0:
+                logger.error(f"[{self.source}] ffmpeg exited with code {return_code} — check /tmp/recorder_ffmpeg.log")
+        except Exception as e:
+            logger.error(f"[{self.source}] Error stopping ffmpeg: {e}", exc_info=True)
             self._ffmpeg_proc.terminate()
             self._ffmpeg_proc.wait()
-        self._ffmpeg_proc = None
+        finally:
+            self._ffmpeg_proc = None
+            if hasattr(self, "_ffmpeg_log_fh") and self._ffmpeg_log_fh:
+                self._ffmpeg_log_fh.close()
+                self._ffmpeg_log_fh = None
 
         # Restore audio AFTER ffmpeg stops (capture right to the end)
         if self._router:
@@ -390,82 +444,70 @@ class RecordingSession:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class ZoomWatcher:
-    # How many consecutive misses before we declare the call over.
-    # At POLL_INTERVAL=3s, MISS_THRESHOLD=4 means 12 seconds of silence
-    # before stopping — enough to survive Zoom's brief audio routing gaps.
-    MISS_THRESHOLD = 4
-
+    """
+    Manages a long-running, continuous recording session that can be
+    manually started, stopped, and split into multiple files.
+    This replaces the automatic, window-title-based detection.
+    """
     def __init__(self):
-        self._detector    = ZoomDetector(blackhole_device=BLACKHOLE_DEVICE)
         self._session: RecordingSession | None = None
-        self._in_call     = False
-        self._miss_count  = 0
-        self._recording_since: datetime | None = None
+        self._lock = threading.Lock()
 
-    def _tick(self):
-        info = self._detector.poll()
+    def start_recording(self, topic="Recording"):
+        with self._lock:
+            if self._session:
+                logger.warning("[zoom] start_recording ignored, session already active")
+                return
+            self._session = RecordingSession("zoom", {"topic": topic})
+            self._session.start_ffmpeg()
+            write_status("recording", topic=topic, meeting_topic=topic, source="zoom_manual")
+            logger.info(f"[zoom] 🔴 Manual recording started: {topic}")
+            notify("Recording Started", topic)
 
-        # If a meeting is happening
-        if info.in_call:
-            self._miss_count = 0
+    def stop_recording(self):
+        with self._lock:
+            if not self._session:
+                logger.warning("[zoom] stop_recording ignored, no session active")
+                return
+            logger.info("[zoom] Manual recording stopped.")
+            self._session.stop()
+            self._session.post_process_async()
+            self._session = None
+            write_status("idle")
+            notify("Recording Stopped", "")
 
-            # CASE A: A new meeting just started
-            if not self._in_call:
-                self._in_call = True
-                self._recording_since = datetime.now()
-                self._session = RecordingSession("zoom", {"topic": info.topic})
-                self._session.start_ffmpeg()
-                write_status("recording", topic=info.topic, meeting_topic=info.topic)
-                logger.info(f"[zoom] 🔴 {info.topic}")
-                notify(f"Recording: {info.topic}", "Zoom call detected")
+    def split_recording(self, new_topic="New Segment"):
+        with self._lock:
+            if not self._session:
+                logger.warning("[zoom] split_recording ignored, no session active")
+                return
 
-            # CASE B: Topic changed while already in a call (back-to-back meetings)
-            elif self._session and info.topic != self._session.meta.get("topic"):
-                logger.info(f"Topic changed: {info.topic}. Restarting session.")
-                self._session.stop()
-                self._session.post_process_async()
-                self._session = RecordingSession("zoom", {"topic": info.topic})
-                self._session.start_ffmpeg()
-                write_status("recording", topic=info.topic, meeting_topic=info.topic)
+            old_topic = self._session.meta.get("topic", "Segment")
+            logger.info(f"[zoom] Splitting recording. New segment: {new_topic}")
 
-        # If no meeting detected
-        else:
-            if self._in_call:
-                self._miss_count += 1
-                logger.debug(
-                    "[zoom] detector miss %d/%d (not in call this poll)",
-                    self._miss_count,
-                    self.MISS_THRESHOLD,
-                )
-                if self._miss_count >= self.MISS_THRESHOLD:
-                    logger.info(
-                        "[zoom] call ended after %d consecutive out-of-call polls (~%ds)",
-                        self.MISS_THRESHOLD,
-                        self.MISS_THRESHOLD * POLL_INTERVAL,
-                    )
-                    self._in_call = False
-                    if self._session:
-                        self._session.stop()
-                        self._session.post_process_async()
-                        self._session = None
+            self._session.stop()
+            self._session.post_process_async()
+
+            self._session = RecordingSession("zoom", {"topic": new_topic, "prev_topic": old_topic})
+            self._session.start_ffmpeg()
+            write_status("recording", topic=new_topic, meeting_topic=new_topic, source="zoom_manual")
+            notify("Recording Split", f"New segment: {new_topic}")
 
     def run(self):
-        logger.info("[zoom] watcher started")
+        """This thread no longer polls, just keeps the watcher alive."""
+        logger.info("[zoom] watcher running in manual command mode")
         while True:
-            try:
-                self._tick()
-            except Exception as e:
-                logger.error("[zoom] tick error: %s", e, exc_info=True)
-            time.sleep(POLL_INTERVAL)
+            time.sleep(3600)  # Keep thread alive, do nothing
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Meet WebSocket Server (Chrome + Safari extensions)
+# Meet WebSocket Server (Chrome + Safari extensions + Manual Control)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class MeetServer:
-    def __init__(self):
+    def __init__(self, zoom_watcher: ZoomWatcher):
         self._sessions: dict[str, RecordingSession] = {}
+        self._zoom_watcher = zoom_watcher
 
     async def handle(self, websocket):
         client_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
@@ -480,13 +522,34 @@ class MeetServer:
                     try:
                         msg = json.loads(message)
                     except json.JSONDecodeError:
+                        logger.warning(f"[meet-ws] invalid JSON from {client_id}")
                         continue
-                    await self._handle_event(client_id, msg)
+
+                    # Route command to the appropriate handler
+                    if "command" in msg:
+                        await self._handle_command(client_id, msg)
+                    else:
+                        await self._handle_event(client_id, msg)
+
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
             await self._end_session(client_id)
             logger.info(f"[meet-ws] disconnected: {client_id}")
+
+    async def _handle_command(self, client_id: str, msg: dict):
+        cmd = msg.get("command")
+        logger.info(f"[meet-ws] command from {client_id}: {cmd}")
+
+        if cmd == "start_manual_recording":
+            self._zoom_watcher.start_recording(msg.get("topic", "Manual Recording"))
+        elif cmd == "stop_manual_recording":
+            self._zoom_watcher.stop_recording()
+        elif cmd == "split_manual_recording":
+            self._zoom_watcher.split_recording(msg.get("topic", "New Segment"))
+        else:
+            logger.warning(f"[meet-ws] unknown command: {cmd}")
+
 
     async def _handle_event(self, client_id: str, msg: dict):
         t      = msg.get("type")
@@ -561,10 +624,15 @@ def main():
 
     write_status("idle")
 
-    threading.Thread(target=ZoomWatcher().run, daemon=True, name="zoom").start()
+    # The new manual watcher runs in the background but doesn't poll.
+    # It waits for commands from the WebSocket server.
+    zoom_watcher = ZoomWatcher()
+    threading.Thread(target=zoom_watcher.run, daemon=True, name="zoom").start()
 
+    # The WebSocket server now handles Meet extension events AND manual commands.
+    meet_server = MeetServer(zoom_watcher=zoom_watcher)
     try:
-        asyncio.run(MeetServer().serve())
+        asyncio.run(meet_server.serve())
     except KeyboardInterrupt:
         write_status("idle")
         logger.info("Shutdown.")
