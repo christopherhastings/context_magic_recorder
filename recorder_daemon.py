@@ -460,7 +460,9 @@ class ZoomWatcher:
                 return
             self._session = RecordingSession("zoom", {"topic": topic})
             self._session.start_ffmpeg()
-            write_status("recording", topic=topic, meeting_topic=topic, source="zoom_manual")
+            write_status("recording", topic=topic, meeting_topic=topic,
+                         source="zoom_manual",
+                         recording_since=datetime.now().isoformat())
             logger.info(f"[zoom] 🔴 Manual recording started: {topic}")
             notify("Recording Started", topic)
 
@@ -490,14 +492,22 @@ class ZoomWatcher:
 
             self._session = RecordingSession("zoom", {"topic": new_topic, "prev_topic": old_topic})
             self._session.start_ffmpeg()
-            write_status("recording", topic=new_topic, meeting_topic=new_topic, source="zoom_manual")
+            write_status("recording", topic=new_topic, meeting_topic=new_topic,
+                         source="zoom_manual",
+                         recording_since=datetime.now().isoformat())
             notify("Recording Split", f"New segment: {new_topic}")
 
     def run(self):
-        """This thread no longer polls, just keeps the watcher alive."""
+        """Keep status file fresh while recording so menubar doesn't think we crashed."""
         logger.info("[zoom] watcher running in manual command mode")
         while True:
-            time.sleep(3600)  # Keep thread alive, do nothing
+            with self._lock:
+                if self._session:
+                    topic = self._session.meta.get("topic", "Recording")
+                    write_status("recording", topic=topic, meeting_topic=topic,
+                                 source="zoom_manual",
+                                 recording_since=self._session.started_at.astimezone().isoformat())
+            time.sleep(5)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

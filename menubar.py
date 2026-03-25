@@ -143,11 +143,11 @@ class RecorderMenuBar(rumps.App):
         since     = status.get("recording_since")
         file_age  = status.get("_file_age", 0)
 
-        # If status file is stale (>30s old) and claims to be recording,
-        # the daemon has likely crashed — show a warning
-        if state == "recording" and file_age > 30:
+        # Daemon updates status file every 5s during recording.
+        # If file is older than 15s and claims recording, daemon is likely dead.
+        if state == "recording" and file_age > 15:
             self.title = "⚠"
-            self._status_item.title = "Daemon may have crashed"
+            self._status_item.title = "Daemon not responding"
             self._meeting_item.hide()
             self._duration_item.hide()
             self._show_manual_controls(is_recording=False)
@@ -164,19 +164,21 @@ class RecorderMenuBar(rumps.App):
             self._duration_item.hide()
 
         elif state == "recording":
-            elapsed_str = ""
+            # Keep menubar title compact — just the icon, no timer text
+            # Timer goes in the dropdown menu instead
+            self.title = "⏺"
             if since:
                 try:
                     started = datetime.fromisoformat(since)
                     elapsed = datetime.now().astimezone() - started.astimezone()
                     mins, secs = divmod(int(elapsed.total_seconds()), 60)
-                    elapsed_str = f" {mins}:{secs:02d}"
                     self._duration_item.title = f"  Duration: {mins}:{secs:02d}"
                     self._duration_item.show()
                 except Exception:
                     self._duration_item.hide()
+            else:
+                self._duration_item.hide()
 
-            self.title = f"⏺{elapsed_str}"
             source_labels = {
                 "zoom": "Zoom (auto)",
                 "zoom_manual": "Zoom (manual)",
