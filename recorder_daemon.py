@@ -120,6 +120,7 @@ POLL_INTERVAL     = int(os.getenv("POLL_INTERVAL", "3"))
 WS_PORT           = int(os.getenv("WS_PORT", "8765"))
 NUM_SPEAKERS      = int(os.getenv("NUM_SPEAKERS")) if os.getenv("NUM_SPEAKERS") else None
 CLOUD_API_ENABLED = bool(os.getenv("ZOOM_ACCOUNT_ID"))
+LMSTUDIO_URL      = os.getenv("LMSTUDIO_URL", "http://localhost:1234/v1")
 STATUS_FILE       = Path("/tmp/recorder_status.json")
 
 
@@ -379,7 +380,7 @@ class RecordingSession:
                     meeting_meta=meta,
                     hf_token=get_hf_token(),
                     whisper_model=WHISPER_MODEL,
-                    num_speakers=NUM_SPEAKERS,
+                    max_speakers=NUM_SPEAKERS,  # upper bound; auto-detect actual count
                 )
             else:
                 # No diarization — transcription only via faster-whisper directly
@@ -417,8 +418,8 @@ class RecordingSession:
                     "transcript": {"turns": turns, "words": []},
                     "diarization_segments": [],
                 }
-                json_path = self.audio_path.with_suffix(".json")
-                json_path.write_text(json.dumps(json_data, indent=2, ensure_ascii=False))
+                json_p = self.audio_path.with_suffix(".json")
+                json_p.write_text(json.dumps(json_data, indent=2, ensure_ascii=False))
 
                 # Write Markdown
                 md_lines = [f"# {meta.get('topic', 'Meeting')}\n"]
@@ -429,9 +430,21 @@ class RecordingSession:
                 self.audio_path.with_suffix(".md").write_text("\n".join(md_lines))
 
             archive_audio(self.audio_path)
+
+            # Auto-summarize via LMStudio if available
+            try:
+                import requests as _req
+                _req.get(f"{LMSTUDIO_URL}/models", timeout=3).raise_for_status()
+                from summarizer import summarize_recording
+                notes_path = summarize_recording(json_p)
+                logger.info(f"Notes: {notes_path.name}")
+                notify(f"Notes ready: {topic}", f"Transcript + summary at localhost:8766")
+            except Exception as _e:
+                logger.info(f"LMStudio not available, skipping summary ({_e})")
+                notify(f"Transcript ready: {topic}", "Open viewer at localhost:8766")
+
             logger.info(f"=== done: {topic} ===")
             write_status("idle")
-            notify(f"Transcript ready: {topic}", "Open viewer at localhost:8766")
 
         except Exception as e:
             logger.error(f"Pipeline error: {e}", exc_info=True)
@@ -445,13 +458,25 @@ class RecordingSession:
 
 class ZoomWatcher:
     """
-    Manages a long-running, continuous recording session that can be
-    manually started, stopped, and split into multiple files.
-    This replaces the automatic, window-title-based detection.
+    Hybrid auto-detect + manual control.
+
+    Auto mode:  Polls ZoomDetector every POLL_INTERVAL seconds.
+                Starts recording when a Zoom call is detected, stops when it ends.
+                Topic changes mid-call update metadata only — never restart.
+
+    Manual mode: start/stop/split via websocket commands from the menubar.
+                 Manual recordings are independent of auto-detection.
     """
     def __init__(self):
+        self._detector = ZoomDetector(blackhole_device=BLACKHOLE_DEVICE)
         self._session: RecordingSession | None = None
         self._lock = threading.Lock()
+        self._was_in_call = False
+        self._source = None          # "auto" or "manual" — tracks who started it
+        self._miss_count = 0
+        self._miss_threshold = 4     # consecutive out-of-call polls before stopping
+
+    # ── Manual controls (called from websocket commands) ─────────────────────
 
     def start_recording(self, topic="Recording"):
         with self._lock:
@@ -460,6 +485,7 @@ class ZoomWatcher:
                 return
             self._session = RecordingSession("zoom", {"topic": topic})
             self._session.start_ffmpeg()
+            self._source = "manual"
             write_status("recording", topic=topic, meeting_topic=topic,
                          source="zoom_manual",
                          recording_since=datetime.now().isoformat())
@@ -475,6 +501,7 @@ class ZoomWatcher:
             self._session.stop()
             self._session.post_process_async()
             self._session = None
+            self._source = None
             write_status("idle")
             notify("Recording Stopped", "")
 
@@ -492,22 +519,79 @@ class ZoomWatcher:
 
             self._session = RecordingSession("zoom", {"topic": new_topic, "prev_topic": old_topic})
             self._session.start_ffmpeg()
+            source_tag = "zoom_manual" if self._source == "manual" else "zoom"
             write_status("recording", topic=new_topic, meeting_topic=new_topic,
-                         source="zoom_manual",
+                         source=source_tag,
                          recording_since=datetime.now().isoformat())
             notify("Recording Split", f"New segment: {new_topic}")
 
+    # ── Auto-detection loop ──────────────────────────────────────────────────
+
+    def _tick(self):
+        info = self._detector.poll()
+
+        with self._lock:
+            # If a manual recording is active, don't interfere
+            if self._source == "manual":
+                return
+
+            if info.in_call and not self._was_in_call:
+                # Call started — begin auto-recording
+                self._miss_count = 0
+                topic = info.topic or "Zoom Meeting"
+                self._session = RecordingSession("zoom", {"topic": topic})
+                self._session.start_ffmpeg()
+                self._source = "auto"
+                self._was_in_call = True
+                write_status("recording", meeting_topic=topic,
+                             source="zoom",
+                             recording_since=datetime.now().isoformat())
+                logger.info(f"[zoom] 🔴 Auto-detected: {topic}")
+                notify(f"Recording: {topic}", "Zoom call detected")
+
+            elif info.in_call and self._was_in_call:
+                # Still in call — update topic metadata if it changed
+                # but NEVER restart the recording
+                self._miss_count = 0
+                if self._session and info.topic:
+                    old_topic = self._session.meta.get("topic", "")
+                    if info.topic != old_topic and info.topic != "Zoom Meeting":
+                        self._session.meta["topic"] = info.topic
+                        logger.info(f"[zoom] topic updated: {old_topic} → {info.topic}")
+
+            elif not info.in_call and self._was_in_call:
+                # Detector says call ended — debounce with miss counter
+                self._miss_count += 1
+                if self._miss_count >= self._miss_threshold:
+                    logger.info(f"[zoom] call ended after {self._miss_count} consecutive out-of-call polls")
+                    if self._session:
+                        self._session.stop()
+                        self._session.post_process_async()
+                        self._session = None
+                    self._source = None
+                    self._was_in_call = False
+                    self._miss_count = 0
+                    write_status("idle")
+                    notify("Recording Stopped", "Zoom call ended")
+
     def run(self):
-        """Keep status file fresh while recording so menubar doesn't think we crashed."""
-        logger.info("[zoom] watcher running in manual command mode")
+        """Poll for Zoom calls and keep status file fresh."""
+        logger.info(f"[zoom] watcher started (poll={POLL_INTERVAL}s, miss_threshold={self._miss_threshold})")
         while True:
-            with self._lock:
-                if self._session:
-                    topic = self._session.meta.get("topic", "Recording")
-                    write_status("recording", topic=topic, meeting_topic=topic,
-                                 source="zoom_manual",
-                                 recording_since=self._session.started_at.astimezone().isoformat())
-            time.sleep(5)
+            try:
+                self._tick()
+
+                # Keep status file fresh during any active recording
+                with self._lock:
+                    if self._session:
+                        topic = self._session.meta.get("topic", "Recording")
+                        source_tag = "zoom_manual" if self._source == "manual" else "zoom"
+                        write_status("recording", topic=topic, meeting_topic=topic,
+                                     source=source_tag,
+                                     recording_since=self._session.started_at.astimezone().isoformat())
+            except Exception as e:
+                logger.error(f"[zoom] tick error: {e}")
+            time.sleep(POLL_INTERVAL)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

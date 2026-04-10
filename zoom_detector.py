@@ -51,6 +51,16 @@ _NON_CALL_SUBSTRINGS = [
     "chat with",
     "share screen",
     "invite people",
+    "zm_hud_toast_window",
+    "zoom annotation",
+    "zoom share statusbar",
+    "share screen window",
+    "meeting chat",
+    "start ai companion",
+    "transcription is on",
+    "here's a recap",
+    "heres a recap",
+    "q&a",
 ]
 
 

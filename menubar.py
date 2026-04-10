@@ -225,19 +225,14 @@ class RecorderMenuBar(rumps.App):
         self._last_state = state
         self._last_source = source
 
-    def _show_manual_controls(self, is_recording: bool, is_manual_source: bool):
+    def _show_manual_controls(self, is_recording: bool, is_manual_source: bool = False):
         if is_recording:
-            # When any recording is happening, hide "Start"
+            # During any recording (auto or manual), show split/stop and hide start
             self._start_rec_item.hide()
-            # Only show Split/Stop for *manual* recordings
-            if is_manual_source:
-                self._split_rec_item.show()
-                self._stop_rec_item.show()
-            else:
-                self._split_rec_item.hide()
-                self._stop_rec_item.hide()
+            self._split_rec_item.show()
+            self._stop_rec_item.show()
         else:
-            # When idle, can always start a new manual recording
+            # When idle, can start a new manual recording
             self._start_rec_item.show()
             self._split_rec_item.hide()
             self._stop_rec_item.hide()

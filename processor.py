@@ -7,12 +7,15 @@ Stereo recordings (Zoom):
   R channel = microphone = you (single known speaker)
 
   Pipeline:
-    Left  → Whisper transcription + pyannote diarization → SPEAKER_00, SPEAKER_01...
-    Right → Whisper transcription only                   → "You"
-    Merge → interleave both channels by timestamp
+    Right → resemblyzer voice fingerprint  →  "You" acoustic model
+    Left  → WhisperX transcribe+align      →  words with phoneme-accurate timestamps
+    Left  → pyannote diarize (no cap)      →  all speakers including echo
+    Left  → acoustic echo filter           →  remote speakers only
+    Right → WhisperX transcribe+align      →  "You" turns
+    Merge → collapse micro-turns           →  final transcript
 
 Mono recordings (Meet via Chrome tabCapture or Safari system audio):
-  Single channel → Whisper + pyannote diarization across all speakers
+  Single channel → WhisperX + pyannote diarization across all speakers
 
 Output: .json + .md per recording
 """
@@ -20,6 +23,7 @@ Output: .json + .md per recording
 import json
 import logging
 import subprocess
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -78,99 +82,271 @@ def split_stereo(audio_path: Path) -> tuple[Path, Path]:
     right = Path(f"{base}_right.wav")
 
     subprocess.run([
-        "ffmpeg", "-i", str(audio_path),
+        "ffmpeg", "-y", "-i", str(audio_path),
         "-af", "pan=mono|c0=c0",
-        str(left), "-y", "-loglevel", "error",
-    ], check=True)
+        "-loglevel", "error", str(left),
+    ], check=True, capture_output=True)
 
     subprocess.run([
-        "ffmpeg", "-i", str(audio_path),
+        "ffmpeg", "-y", "-i", str(audio_path),
         "-af", "pan=mono|c0=c1",
-        str(right), "-y", "-loglevel", "error",
-    ], check=True)
+        "-loglevel", "error", str(right),
+    ], check=True, capture_output=True)
 
     logger.info(f"Split stereo: L={left.name} R={right.name}")
     return left, right
 
 
-# ── Transcription ─────────────────────────────────────────────────────────────
+# ── Transcription (WhisperX with forced phoneme alignment) ────────────────────
 
-def transcribe(audio_path: Path, model_size: str = "medium.en") -> list[Word]:
+def transcribe_aligned(audio_path: Path, model_size: str = "medium.en") -> list[Word]:
+    """
+    Transcribe with WhisperX: Whisper → wav2vec2 forced alignment.
+    Returns words with phoneme-accurate timestamps (<50ms drift vs Whisper's ~1s).
+    Falls back to faster-whisper if alignment model unavailable.
+    """
+    try:
+        import whisperx
+
+        device = "cpu"
+        logger.info(f"Loading WhisperX model '{model_size}'...")
+        model = whisperx.load_model(model_size, device=device, compute_type="int8")
+
+        logger.info(f"Transcribing {audio_path.name}...")
+        audio = whisperx.load_audio(str(audio_path))
+        result = model.transcribe(audio, batch_size=8, language="en")
+
+        logger.info("Force-aligning word timestamps (wav2vec2)...")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            align_model, metadata = whisperx.load_align_model(
+                language_code="en", device=device
+            )
+        result = whisperx.align(
+            result["segments"], align_model, metadata, audio, device=device,
+            return_char_alignments=False,
+        )
+
+        words = []
+        for seg in result.get("segments", []):
+            for w in seg.get("words", []):
+                if w.get("start") is not None and w.get("end") is not None:
+                    words.append(Word(
+                        start=float(w["start"]),
+                        end=float(w["end"]),
+                        text=w["word"],
+                        probability=float(w.get("score", 0.0)),
+                    ))
+
+        duration = words[-1].end if words else 0
+        logger.info(f"Aligned transcription: {len(words)} words, {duration:.1f}s")
+        return words
+
+    except Exception as e:
+        logger.warning(f"WhisperX alignment failed ({e}), falling back to faster-whisper")
+        return _transcribe_fallback(audio_path, model_size)
+
+
+def _transcribe_fallback(audio_path: Path, model_size: str) -> list[Word]:
+    """faster-whisper fallback (unaligned timestamps)."""
     from faster_whisper import WhisperModel
-
-    logger.info(f"Loading Whisper model '{model_size}'...")
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
-
-    logger.info(f"Transcribing {audio_path.name}...")
     segments, info = model.transcribe(
-        str(audio_path),
-        language="en",
-        word_timestamps=True,
-        vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
+        str(audio_path), language="en", word_timestamps=True,
+        vad_filter=True, vad_parameters={"min_silence_duration_ms": 500},
     )
-
     words = []
-    for segment in segments:
-        if segment.words:
-            for w in segment.words:
-                words.append(Word(
-                    start=w.start, end=w.end,
-                    text=w.word, probability=w.probability,
-                ))
-
-    logger.info(f"Transcription complete: {len(words)} words, {info.duration:.1f}s audio")
+    for seg in segments:
+        if seg.words:
+            for w in seg.words:
+                words.append(Word(start=w.start, end=w.end,
+                                  text=w.word, probability=w.probability))
+    logger.info(f"Fallback transcription: {len(words)} words, {info.duration:.1f}s audio")
     return words
+
+
+# ── Voice fingerprinting (resemblyzer) ────────────────────────────────────────
+
+def extract_voice_fingerprint(audio_path: Path):
+    """
+    Extract a 256-dim speaker embedding for the audio using resemblyzer.
+    Used to create a voice fingerprint of "You" from the right channel.
+    Returns None if audio is too short or resemblyzer fails.
+    """
+    try:
+        import numpy as np
+        from resemblyzer import VoiceEncoder, preprocess_wav
+
+        from resemblyzer.hparams import sampling_rate as _sr
+        encoder = VoiceEncoder()
+        wav = preprocess_wav(str(audio_path))
+        if len(wav) < _sr * 2:  # need at least 2s
+            logger.info("Right channel too short for voice fingerprint")
+            return None
+
+        embedding = encoder.embed_utterance(wav)
+        logger.info(f"Voice fingerprint extracted ({len(wav)/_sr:.1f}s audio)")
+        return embedding
+    except Exception as e:
+        logger.warning(f"Voice fingerprint extraction failed: {e}")
+        return None
+
+
+def filter_echo_acoustic(
+    diarization: list[dict],
+    you_fingerprint,
+    pyannote_embeddings: Optional[dict] = None,
+    audio_path: Optional[Path] = None,
+    similarity_threshold: float = 0.82,
+) -> list[dict]:
+    """
+    Remove diarization segments whose speaker sounds like "You".
+
+    Strategy (in priority order):
+    1. pyannote speaker embeddings (free from diarization, no extra model load)
+    2. resemblyzer embeddings from raw audio (fallback)
+
+    Speakers with cosine similarity ≥ threshold to the "You" fingerprint
+    are removed from the diarization before turn building.
+    """
+    if you_fingerprint is None:
+        return diarization
+
+    import numpy as np
+
+    def cosine(a, b) -> float:
+        a, b = a.flatten(), b.flatten()
+        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+
+    # ── Strategy 1: use pyannote embeddings (already computed) ────────────────
+    if pyannote_embeddings:
+        echo_speakers: set[str] = set()
+        for spk, emb in pyannote_embeddings.items():
+            try:
+                sim = cosine(you_fingerprint, emb)
+                logger.info(f"  {spk}: pyannote cosine similarity to You = {sim:.3f}")
+                if sim >= similarity_threshold:
+                    echo_speakers.add(spk)
+                    logger.info(f"    → echo identified via pyannote embeddings, removing {spk}")
+            except Exception as e:
+                logger.debug(f"pyannote embedding compare failed for {spk}: {e}")
+
+        if echo_speakers:
+            filtered = [s for s in diarization if s["speaker"] not in echo_speakers]
+            logger.info(
+                f"Acoustic echo filter (pyannote): removed {len(echo_speakers)} speaker(s), "
+                f"{len(diarization)-len(filtered)} segments dropped"
+            )
+            return filtered
+        logger.info("Acoustic echo filter (pyannote): no echo speakers detected")
+        return diarization
+
+    # ── Strategy 2: resemblyzer fallback ─────────────────────────────────────
+    if audio_path is None:
+        return diarization
+    try:
+        from resemblyzer import VoiceEncoder, preprocess_wav
+        from resemblyzer.hparams import sampling_rate as _sr
+
+        encoder  = VoiceEncoder()
+        wav      = preprocess_wav(str(audio_path))
+        duration = len(wav) / _sr
+
+        speaker_best: dict[str, dict] = {}
+        for seg in diarization:
+            spk, dur = seg["speaker"], seg["end"] - seg["start"]
+            if spk not in speaker_best or dur > (speaker_best[spk]["end"] - speaker_best[spk]["start"]):
+                speaker_best[spk] = seg
+
+        echo_speakers = set()
+        for spk, seg in speaker_best.items():
+            if seg["end"] - seg["start"] < 1.5:
+                continue
+            s, e = max(0, seg["start"]), min(duration, seg["end"])
+            try:
+                emb = encoder.embed_utterance(wav[int(s * _sr): int(e * _sr)])
+                sim = cosine(you_fingerprint, emb)
+                logger.info(f"  {spk}: resemblyzer cosine similarity to You = {sim:.3f}")
+                if sim >= similarity_threshold:
+                    echo_speakers.add(spk)
+                    logger.info(f"    → echo identified via resemblyzer, removing {spk}")
+            except Exception as ex:
+                logger.debug(f"resemblyzer failed for {spk}: {ex}")
+
+        filtered = [s for s in diarization if s["speaker"] not in echo_speakers]
+        if echo_speakers:
+            logger.info(f"Acoustic echo filter (resemblyzer): removed {len(echo_speakers)} speaker(s)")
+        else:
+            logger.info("Acoustic echo filter (resemblyzer): no echo speakers detected")
+        return filtered
+
+    except Exception as e:
+        logger.warning(f"Acoustic echo filter failed ({e}), keeping all segments")
+        return diarization
 
 
 # ── Diarization ───────────────────────────────────────────────────────────────
 
 def diarize(audio_path: Path, hf_token: str,
             min_speakers: int = 1,
-            max_speakers: Optional[int] = None) -> list[dict]:
+            max_speakers: Optional[int] = None
+            ) -> tuple[list[dict], Optional[dict]]:
     """
-    Run pyannote speaker diarization with automatic speaker count detection.
+    Run pyannote speaker diarization.
+    Returns (segments, speaker_embeddings_dict) where:
+      segments = [{"speaker": str, "start": float, "end": float}, ...]
+      speaker_embeddings_dict = {"SPEAKER_00": np.ndarray, ...} or None
 
-    min_speakers: floor — never report fewer than this many speakers (default 1)
-    max_speakers: ceiling — never report more than this (None = fully automatic)
-
-    Passing min=1, max=None lets pyannote decide entirely. Passing max=3 on
-    the remote channel of a stereo recording bounds the search without
-    forcing a wrong answer on short or single-speaker segments.
+    max_speakers=None lets pyannote fully auto-detect.
     """
     from pyannote.audio import Pipeline
     import torch
 
     logger.info("Loading pyannote diarization pipeline...")
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1",
-        use_auth_token=hf_token,
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            token=hf_token,
+        )
 
     if torch.backends.mps.is_available():
         pipeline.to(torch.device("mps"))
         logger.info("Using Apple MPS (GPU) for diarization")
 
-    # Build kwargs — only pass bounds that are set
     kwargs = {}
     if min_speakers is not None: kwargs["min_speakers"] = min_speakers
     if max_speakers is not None: kwargs["max_speakers"] = max_speakers
 
     bounds = f"min={min_speakers}" + (f" max={max_speakers}" if max_speakers else " max=auto")
     logger.info(f"Diarizing {audio_path.name} ({bounds})...")
-    diarization = pipeline(str(audio_path), **kwargs)
+
+    # pyannote 4.x works best with pre-loaded waveforms (avoids torchcodec issues)
+    import torchaudio
+    waveform, sample_rate = torchaudio.load(str(audio_path))
+    audio_input = {"waveform": waveform, "sample_rate": sample_rate}
+    result = pipeline(audio_input, **kwargs)
+
+    # pyannote 4.x returns DiarizeOutput; 3.x returns Annotation directly
+    if hasattr(result, "speaker_diarization"):
+        annotation       = result.speaker_diarization
+        raw_embeddings   = result.speaker_embeddings  # (n_speakers, dim) ndarray or None
+        speaker_labels   = annotation.labels()
+        embeddings_dict  = (
+            {spk: raw_embeddings[i] for i, spk in enumerate(speaker_labels)}
+            if raw_embeddings is not None else None
+        )
+    else:
+        annotation      = result
+        embeddings_dict = None
 
     segments = []
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
-        segments.append({
-            "speaker": speaker,
-            "start":   turn.start,
-            "end":     turn.end,
-        })
+    for turn, _, speaker in annotation.itertracks(yield_label=True):
+        segments.append({"speaker": speaker, "start": turn.start, "end": turn.end})
 
     n_speakers = len(set(s["speaker"] for s in segments))
-    logger.info(f"Diarization complete: {n_speakers} speakers detected, {len(segments)} segments")
-    return segments
+    logger.info(f"Diarization complete: {n_speakers} speakers, {len(segments)} segments")
+    return segments, embeddings_dict
 
 
 # ── Merge helpers ─────────────────────────────────────────────────────────────
@@ -180,11 +356,9 @@ def words_to_turns_with_diarization(words: list[Word],
     """Assign each word to a speaker via diarization, collapse into turns."""
 
     def speaker_at(t: float) -> str:
-        # Find the diarization segment that contains t
         for seg in diarization:
             if seg["start"] <= t <= seg["end"]:
                 return seg["speaker"]
-        # t falls in a gap — snap to the nearest segment boundary
         best = min(diarization, key=lambda s: min(abs(t - s["start"]), abs(t - s["end"])), default=None)
         return best["speaker"] if best else "UNKNOWN"
 
@@ -218,7 +392,7 @@ def words_to_turns_single_speaker(words: list[Word],
     if not words:
         return []
 
-    GAP = 1.5  # seconds — gap larger than this starts a new turn
+    GAP = 1.5
     cur = SpeakerTurn(speaker=speaker, start=words[0].start,
                       end=words[0].end, words=[words[0]])
     turns = []
@@ -240,6 +414,31 @@ def merge_turns(*turn_lists: list[SpeakerTurn]) -> list[SpeakerTurn]:
     """Interleave multiple turn lists sorted by start time."""
     all_turns = [t for turns in turn_lists for t in turns]
     return sorted(all_turns, key=lambda t: t.start)
+
+
+def collapse_turns(turns: list[SpeakerTurn],
+                   gap_threshold: float = 0.8) -> list[SpeakerTurn]:
+    """
+    Merge consecutive same-speaker turns separated by a short gap.
+    Reduces fragmentation from pyannote micro-segments and Whisper pauses.
+    """
+    if not turns:
+        return turns
+
+    merged = [turns[0]]
+    for turn in turns[1:]:
+        prev = merged[-1]
+        if (turn.speaker == prev.speaker and
+                turn.start - prev.end <= gap_threshold):
+            prev.words.extend(turn.words)
+            prev.end = turn.end
+        else:
+            merged.append(turn)
+
+    removed = len(turns) - len(merged)
+    if removed:
+        logger.info(f"Collapsed {removed} micro-turns into neighbouring same-speaker turns")
+    return merged
 
 
 def relabel_speakers(turns: list[SpeakerTurn],
@@ -323,7 +522,7 @@ def build_output_json(turns: list[SpeakerTurn], meeting_meta: dict,
                       recording_path: Path,
                       diarization_segments: list[dict] = None) -> dict:
     return {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "recording": {
             "file":         str(recording_path),
             "processed_at": datetime.now(timezone.utc).isoformat(),
@@ -360,69 +559,78 @@ def process_recording(
     """
     Full pipeline. Returns (json_path, markdown_path).
 
-    Speaker count params (all optional, use whichever you know):
-      num_speakers  — exact count, sets min=max=N
-      min_speakers  — floor for auto-detection (default 1)
-      max_speakers  — ceiling for auto-detection
-
     Stereo WAV (Zoom):
-      Left  = remote audio → Whisper + pyannote diarization
-      Right = mic (you)    → Whisper only, labelled "You"
-      max for remote channel = max_speakers - 1 (you are already separated)
+      1. Extract "You" voice fingerprint from right channel (resemblyzer)
+      2. Transcribe left channel with WhisperX (phoneme-aligned timestamps)
+      3. Diarize left channel with pyannote (no speaker cap — auto-detect)
+      4. Remove echo speakers acoustically using voice fingerprint
+      5. Transcribe right channel with WhisperX
+      6. Merge, collapse micro-turns, relabel
 
     Mono WAV (Meet):
-      Single channel → Whisper + pyannote diarization across everyone
+      WhisperX transcription + pyannote diarization across all speakers
     """
-    # Normalise: num_speakers is shorthand for min=max=N
     if num_speakers is not None:
         min_speakers = min_speakers or num_speakers
         max_speakers = max_speakers or num_speakers
+
     base = audio_path.with_suffix("")
     logger.info(f"=== Processing: {audio_path.name} ===")
 
     all_diarization = []
 
     if is_stereo(audio_path):
-        logger.info("Stereo audio — channel-based speaker separation")
+        logger.info("Stereo — channel-based separation with acoustic echo cancellation")
         left_path, right_path = split_stereo(audio_path)
 
-        # Remote participants: transcribe + diarize with auto speaker detection
-        logger.info("Transcribing remote channel (left)...")
-        left_words = transcribe(left_path, model_size=whisper_model)
+        # Step 1: Extract "You" voice fingerprint from mic channel
+        logger.info("Extracting voice fingerprint from mic channel...")
+        you_fingerprint = extract_voice_fingerprint(right_path)
 
-        # min=1 (could be one remote speaker), max=num_speakers-1 (you are separate)
-        remote_min = max(1, (min_speakers or 1) - 1) if (min_speakers or 1) > 1 else 1
-        remote_max = max(1, (max_speakers or 8) - 1)
-        logger.info(f"Diarizing remote channel (min={remote_min} max={remote_max} remote speakers)...")
-        left_diarization = diarize(
+        # Step 2: Transcribe remote channel (aligned timestamps)
+        logger.info("Transcribing remote channel (left)...")
+        left_words = transcribe_aligned(left_path, model_size=whisper_model)
+
+        # Step 3: Diarize remote channel — no speaker cap, echo removed acoustically
+        logger.info("Diarizing remote channel (auto speaker count)...")
+        left_diarization, left_embeddings = diarize(
             left_path, hf_token=hf_token,
-            min_speakers=remote_min,
-            max_speakers=remote_max,
+            min_speakers=1,
+            max_speakers=max_speakers,  # None = fully auto
         )
         all_diarization = left_diarization
+
+        # Step 4: Remove echo speakers using pyannote embeddings (free) or resemblyzer
+        logger.info("Running acoustic echo cancellation...")
+        left_diarization = filter_echo_acoustic(
+            left_diarization,
+            you_fingerprint,
+            pyannote_embeddings=left_embeddings,
+            audio_path=left_path,
+        )
+
         remote_turns = words_to_turns_with_diarization(left_words, left_diarization)
 
-        # You: transcribe only
-        logger.info("Transcribing local channel (right — 'You')...")
-        right_words  = transcribe(right_path, model_size=whisper_model)
+        # Step 5: Transcribe mic channel
+        logger.info("Transcribing mic channel (right — 'You')...")
+        right_words = transcribe_aligned(right_path, model_size=whisper_model)
         local_turns  = words_to_turns_single_speaker(right_words, speaker="You")
-
-        # TODO: re-enable after diarization testing
-        # left_path.unlink(missing_ok=True)
-        # right_path.unlink(missing_ok=True)
 
         turns = merge_turns(remote_turns, local_turns)
 
     else:
         logger.info("Mono audio — full diarization across all speakers")
-        words       = transcribe(audio_path, model_size=whisper_model)
-        diarization = diarize(
+        words = transcribe_aligned(audio_path, model_size=whisper_model)
+        diarization, _ = diarize(
             audio_path, hf_token=hf_token,
             min_speakers=min_speakers or 1,
-            max_speakers=max_speakers,  # None = fully automatic
+            max_speakers=max_speakers,
         )
         all_diarization = diarization
         turns = words_to_turns_with_diarization(words, diarization)
+
+    # Collapse micro-turns (same speaker, short gap)
+    turns = collapse_turns(turns)
 
     # Relabel SPEAKER_XX with real names if available
     names = participant_names or [p["name"] for p in meeting_meta.get("participants", [])]
@@ -435,10 +643,10 @@ def process_recording(
         build_output_json(turns, meeting_meta, audio_path, all_diarization),
         indent=2, ensure_ascii=False,
     ))
-    logger.info(f"📄 JSON: {json_path}")
+    logger.info(f"JSON: {json_path}")
 
     md_path = base.with_suffix(".md")
     md_path.write_text(render_markdown(turns, meeting_meta))
-    logger.info(f"📝 Markdown: {md_path}")
+    logger.info(f"Markdown: {md_path}")
 
     return json_path, md_path

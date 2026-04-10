@@ -6,18 +6,19 @@
     <string>com.recorder.daemon</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/christopherhastings/recorder/venv/bin/python</string>
-        <string>/Users/christopherhastings/recorder/recorder_daemon.py</string>
+        <string>/usr/bin/osascript</string>
+        <string>-e</string>
+        <string>tell application "Terminal" to do script "/Users/christopherhastings/recorder/start_recorder.sh"</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
     <key>WorkingDirectory</key>
     <string>/Users/christopherhastings/recorder</string>
     <key>StandardOutPath</key>
-    <string>/tmp/recorder_daemon.log</string>
+    <string>/tmp/recorder_launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/recorder_daemon.err</string>
+    <string>/tmp/recorder_launchd.err</string>
 </dict>
 </plist>
